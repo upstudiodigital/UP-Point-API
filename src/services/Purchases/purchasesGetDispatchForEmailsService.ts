@@ -2,7 +2,7 @@ import path from "path";
 import fs from "fs";
 import prismaClient from "../../prisma";
 import { transporter } from "../../config/nodemailerConfig";  
-import { GetDetailsVoucherService } from "./purchesesGetDetailsService";
+import { GetDetailsPurchasesService } from "./purchesesGetDetailsService";
 import { formatterCurrency } from "../../utils/formatters/formatterPrice";
 import { formatterCPF } from "../../utils/formatters/formatterCPF";
 import { formatterDateToString } from "../../utils/formatters/formatterDate";
@@ -59,7 +59,7 @@ class GetDispatchPurchasesForEmailsService {
       };
     }
 
-    const getDetailsVoucher = new GetDetailsVoucherService();
+    const getDetailsVoucher = new GetDetailsPurchasesService();
     const dataResponseDetailsVoucher = await getDetailsVoucher.execute({
       id: idVoucher,
       idUserLogged,

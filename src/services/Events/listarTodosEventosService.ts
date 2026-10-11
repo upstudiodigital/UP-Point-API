@@ -7,6 +7,7 @@ class ListarTodosEventosService {
     async execute({nome}: IListarTodosEventosService){
         const listarTodosEventos = await prismaClient.events.findMany({
             where: {
+                status: true,
                 name: {
                     contains: nome,
                     mode: "insensitive",

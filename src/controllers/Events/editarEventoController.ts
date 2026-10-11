@@ -3,7 +3,7 @@ import { EditarEventosService } from "../../services/Events/editarEventoService"
 
 class EditarEventoController {
   async handle(req: Request, res: Response) {
-    const id_user_logged = req.url
+    const id_user_logged = req.user_id
   
     const {
       id,

@@ -1,13 +1,2 @@
 import { defineConfig } from 'tsup';
-
-export default defineConfig({
-  entry: ['src/index.ts'],
-  outDir: 'dist',
-  sourcemap: true,
-  clean: true,
-  target: 'es6',
-  format: ['cjs'],
-  loader: {
-    '.html': 'text'
-  }
-});
+export default defineConfig({ entry: ['src/server.ts'], outDir: 'dist', sourcemap: true, clean: true, target: 'node22', format: ['cjs'] });

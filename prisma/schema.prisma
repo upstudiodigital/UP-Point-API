@@ -19,11 +19,11 @@ model Users {
   companyName     String? 
   email           String?
   password        String
-  cpfCnpj         String
+  cpfCnpj         String?
   typePerson      String  @default("PF") // Pode ser "PF" ou "PJ"
-  birthDate       String
-  phone           String
-  gender          String
+  birthDate       String?
+  phone           String?
+  gender          String?
 
   complement     String?
   street         String?
@@ -239,7 +239,7 @@ model TypesProducts {
 model Events {
   id          String @id @default(uuid())
   idUserOwner String
-  idProduct   String
+  idProduct   String?
   idCategory  String
 
   name          String
@@ -256,8 +256,15 @@ model Events {
   restrictionsEvent    Json? //restrições do evento
   phoneForContact      String? //global
   status               Boolean @default(true)
+  city                 String @default("")
+  state                String @default("SC")
+  country              String @default("BR")
+  priceCents           Int @default(0)
+  featuredPriority     Int?
+  featuredStartsAt     DateTime?
+  featuredEndsAt       DateTime?
 
-  products   Products   @relation(fields: [idProduct], references: [id])
+  products   Products?   @relation(fields: [idProduct], references: [id])
   categories Categories @relation(fields: [idCategory], references: [id])
   userOwner  Users      @relation(fields: [idUserOwner], references: [id])
 

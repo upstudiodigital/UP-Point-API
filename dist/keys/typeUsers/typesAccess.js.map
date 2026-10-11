@@ -1,1 +1,0 @@
-{"version":3,"sources":["../../../src/keys/typeUsers/typesAccess.ts"],"sourcesContent":["\r\n\r\n\r\nexport enum TypeUser {\r\n    User = 'titular',\r\n    Dependent = 'dependente',\r\n \r\n}"],"mappings":";;;;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA;AAAA;AAAA;AAGO,IAAK,WAAL,kBAAKA,cAAL;AACH,EAAAA,UAAA,UAAO;AACP,EAAAA,UAAA,eAAY;AAFJ,SAAAA;AAAA,GAAA;","names":["TypeUser"]}

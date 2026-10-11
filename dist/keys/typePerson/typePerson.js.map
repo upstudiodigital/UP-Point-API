@@ -1,1 +1,0 @@
-{"version":3,"sources":["../../../src/keys/typePerson/typePerson.ts"],"sourcesContent":["\r\n\r\n\r\nexport enum TypePerson {\r\n        Fisic = \"PF\",\r\n        Juridic = \"PJ\"\r\n}"],"mappings":";;;;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA;AAAA;AAAA;AAGO,IAAK,aAAL,kBAAKA,gBAAL;AACC,EAAAA,YAAA,WAAQ;AACR,EAAAA,YAAA,aAAU;AAFN,SAAAA;AAAA,GAAA;","names":["TypePerson"]}

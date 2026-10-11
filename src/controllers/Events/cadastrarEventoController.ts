@@ -16,7 +16,7 @@ interface IResponseCadastrarEventoController {
 
 class CadastrarEventoController {
     async handle(req: Request, res: Response){
-        const id_user_logged = req.url
+        const id_user_logged = req.user_id
         const { 
           idProduct,
           idCategory,
@@ -35,7 +35,10 @@ class CadastrarEventoController {
 
         const cadastrarEvento = new CadastrarEventoService()
        
-            const file = req.files['bannerEvento'];
+            const file = req.files?.['bannerEvento'];
+            if (!file || Array.isArray(file) || !['image/jpeg', 'image/png'].includes(file.mimetype) || file.size > 5 * 1024 * 1024) {
+              return res.status(400).json({ message: 'Selecione uma imagem JPG ou PNG de até 5 MB.' });
+            }
 
             if (Array.isArray(file)) {
               // Se for um array, use o primeiro arquivo ou faça o que for necessário
@@ -58,7 +61,7 @@ class CadastrarEventoController {
               description,
               localityEvent,
               urlLocalityEvent,
-              bannerImageUrl,
+              bannerImageUrl: resultFile.secure_url,
               dateEvent,
               hourEvent,
               restrictionsEvent,

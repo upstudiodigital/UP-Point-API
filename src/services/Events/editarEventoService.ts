@@ -40,7 +40,8 @@ class EditarEventosService {
   }: EditarEventoServiceType) {
 
 
-    //idUserOwner
+    const owned = await prismaClient.events.findFirst({where: {id, idUserOwner}});
+    if (!owned) throw new Error('Evento não encontrado ou sem permissão.');
 
 
     const editar = await prismaClient.events.update({
@@ -56,14 +57,14 @@ class EditarEventosService {
       idCategory: idCategory,
       localityEvent: localityEvent,
       urlLocalityEvent: urlLocalityEvent,
-      bannerImageUrl: "", // aqui vai a url do evento,
+      bannerImageUrl: owned.bannerImageUrl,
       dateEvent: dateEvent,
       hourEvent: hourEvent,
       restrictionsEvent: restrictionsEvent,
       placesPurchaseTicket: placesPurchaseTicket,
       urlPostSocialNetwork: urlPostSocialNetwork,
       phoneForContact: phoneForContact,
-      status: status ? status : true,
+      status: status ?? owned.status,
       },
     });
     return editar;

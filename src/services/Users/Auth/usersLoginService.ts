@@ -67,12 +67,12 @@ class UsersLoginService {
       {
         id: users.id,
         name: users.name,
-        password: users.password,
       },
       process.env.JWT_SECRET,
       {
         subject: users.id,
-        expiresIn: "30d",
+        expiresIn: "8h",
+        algorithm: "HS256",
       }
     );
 

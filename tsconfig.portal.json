@@ -1,0 +1,5 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "strict": true, "noEmit": true },
+  "include": ["src/portal/**/*.ts", "src/middlewares/isLogged.ts", "src/prisma/index.ts", "src/@types/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"]
+}

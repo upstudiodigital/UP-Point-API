@@ -1,38 +1,19 @@
-import {Request, Response, NextFunction} from 'express'
-import { verify } from 'jsonwebtoken'
-
-
-interface IVerificationToken {
-    sub: string;
-}
-
+import type { Request, Response, NextFunction } from 'express';
+import { verify } from 'jsonwebtoken';
 
 export const isLogged = (req: Request, res: Response, next: NextFunction) => {
-    const loggedToken = req.headers.authorization;
-
-    if(!loggedToken){
-        return res.status(401).json({
-            status: 401,
-            message: "Solicitação necessita do token de autenticação, faça o login."
-        }).end()
+  const match = /^Bearer ([^\s]+)$/i.exec(req.headers.authorization ?? '');
+  if (!match) return res.status(401).json({ message: 'Faça login para continuar.' });
+  const secret = process.env.JWT_SECRET;
+  if (!secret) return res.status(503).json({ message: 'Autenticação indisponível.' });
+  try {
+    const payload = verify(match[1], secret, { algorithms: ['HS256'] });
+    if (typeof payload === 'string' || typeof payload.sub !== 'string') {
+      return res.status(401).json({ message: 'Sessão inválida.' });
     }
-
-    const [, token] = loggedToken.split(" ");
-
-    try {
-        const {sub} = verify(token, process.env.JWT_SECRET) as IVerificationToken
-        req.user_id = sub;
-        console.log("Verificação de token concluída")
-    }
-    
-    
-    catch(err){
-        res.status(401).json({
-            status: 401,
-            message: "Solicitação falhou, ocorreu algum erro na verificação do token."
-        }).end();
-
-    }
-
-    return next()
-}
+    req.user_id = payload.sub;
+    return next();
+  } catch {
+    return res.status(401).json({ message: 'Sua sessão expirou. Entre novamente.' });
+  }
+};

@@ -10,6 +10,7 @@ class ListarEventoIdService {
         const listarEventoId = await prismaClient.events.findFirst({
             where: {
                 id: id,
+                status: true,
             },
             include: { 
                categories: true,

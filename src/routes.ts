@@ -233,12 +233,11 @@ router.delete(
 
 // Events
 router.post("/eventos", isLogged, new CadastrarEventoController().handle);
-router.get("/eventos", isLogged, new ListarTodosEventosController().handle);
-router.get("/eventos/:id", isLogged, new ListarEventoIdController().handle);
+router.get("/eventos", new ListarTodosEventosController().handle);
+router.get("/eventos/:id", new ListarEventoIdController().handle);
 router.put(
   "/eventos",
   isLogged,
-  upload.single("bannerEvento"),
   new EditarEventoController().handle
 );
 router.delete("/eventos/:id", isLogged, new DeletarEventoController().handle);

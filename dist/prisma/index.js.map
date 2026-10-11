@@ -1,1 +1,0 @@
-{"version":3,"sources":["../../src/prisma/index.ts"],"sourcesContent":["import { PrismaClient } from \"@prisma/client\";\r\n\r\nconst prismaClient = new PrismaClient()\r\n\r\nexport default prismaClient;\r\n"],"mappings":";;;;;;;;;;;;;;;;;;;AAAA;AAAA;AAAA;AAAA;AAAA;AAAA,oBAA6B;AAE7B,IAAM,eAAe,IAAI,2BAAa;AAEtC,IAAO,iBAAQ;","names":[]}
