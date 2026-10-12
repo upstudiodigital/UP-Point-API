@@ -42,7 +42,7 @@ Seed restrito a uppoint_dev na porta 5434: seis eventos marcados como Demonstra�
 
 JWT HS256 por 8 horas, sem senha no payload. Novos hashes bcrypt com custo 12. Limitação de autenticação por IP em memória; múltiplas instâncias exigem armazenamento compartilhado. Logout remove a sessão local, sem revogar um token copiado. Conta registra o aceite explícito nos campos existentes de termos/privacidade e na data de criação.
 
-Destaques são configurados no banco; cobrança/painel ficam para outra sprint. Modelo aceita UFs brasileiras, com agenda inicial SC.
+Aprovar um pedido elegível para carrossel aplica featuredPriority. Recebimento PIX depende da definição do provedor. Modelo aceita UFs brasileiras, com agenda inicial SC.
 
 ## Verificar
 
@@ -61,3 +61,26 @@ Testes usam dados fictícios, removem seus próprios registros/uploads e recusam
 ## Legado
 
 Rotas administrativas e pagamentos desabilitadas por padrão. ENABLE_LEGACY_ROUTES=true somente para revisão controlada; esses módulos ainda precisam de auditoria. Webhook antigo retorna 501 devido a serviços ausentes. Build gerado em dist/ não é versionado. Migrações em banco de produção exigem backup e revisão dos dados existentes.
+
+
+## Painéis e anúncios
+
+Novos anúncios têm moderationStatus=pending; GET /events e os detalhes públicos só retornam approved. A posição é cards ou carousel. A API calcula R$ 0 na primeira publicação aos cards, R$ 10 nas próximas e R$ 50 para carrossel. freeAdUsed e AdOrder são gravados juntos sob bloqueio transacional por usuário. A gratuidade permanece no anúncio em correções e não é devolvida ao excluí-lo.
+
+- GET /account/dashboard: eventos/pedidos exclusivos da conta, elegibilidade à gratuidade.
+- GET /account/events/:id: anúncio privado do dono para edição.
+- GET/PATCH /account/profile: dados da conta; PATCH aceita multipart name, phone, avatar JPG/PNG. Não altera email/permissões.
+- GET /admin/dashboard: eventos, pedidos, contas (sem senha), ações e tráfego agregado. Exige usuário ativo com typeAccess=admin consultado no banco.
+- PATCH /admin/events/:id: operation approve/reject/delete; recusa exige reason. Aprovação exige pedido free/paid; exclusão desativa e preserva o histórico.
+- PATCH /admin/users/:id: status boolean; não permite bloquear a própria conta nem outra conta administrativa.
+- POST /analytics/page-view: contador diário agregado no fuso de São Paulo, limitado a 30 chamadas/IP/minuto em memória. Não registra visitante/IP no banco; não representa usuários únicos.
+
+O painel lista até 1.000 registros por conjunto (eventos/pedidos/contas), 100 ações e 30 dias de tráfego. Receita total vem de agregação de todos os pedidos pagos; o gráfico financeiro deriva dos pedidos listados. Paginação e relatórios completos serão necessários ao ultrapassar esse volume.
+
+PIX ainda não configurado: novos pedidos com valor positivo ficam awaiting_configuration; não existe endpoint público para marcar pagamento manualmente. Não há QR Code real, webhook ou conciliação nesta versão. A integração futura deverá verificar assinatura, valor/moeda, identificar o pedido e registrar paidAt de forma idempotente. Rejeição/reembolso/vencimento dependem da política e do provedor escolhido.
+
+Conta administrativa de demonstração (somente após autorização, banco local):
+
+    npx tsx scripts/create-development-admin.ts
+
+Credenciais em ../.local/admin-account.json, não versionadas. Em produção, provisionar administradores pelo procedimento interno autorizado; o cadastro público sempre cria client. O script não funciona fora de uppoint_dev em 127.0.0.1:5434.

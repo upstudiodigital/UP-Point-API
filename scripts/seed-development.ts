@@ -14,7 +14,7 @@ async function main() {
   for (const item of events) {
     const category = await prisma.categories.upsert({ where: { id: "development-" + item.category },
       create: { id: "development-" + item.category, name: item.category, idUserOwner: user.id }, update: {} });
-    const data = { name: "Demonstração · " + item.title, description: "Evento fictício para validar o ambiente de desenvolvimento. " + item.description,
+    const data = { moderationStatus: "approved", name: "Demonstração · " + item.title, description: "Evento fictício para validar o ambiente de desenvolvimento. " + item.description,
       city: item.city, state: item.state, country: "BR", localityEvent: item.venue, urlLocalityEvent: "",
       bannerImageUrl: item.image, dateEvent: item.date, hourEvent: item.time, idCategory: category.id,
       idUserOwner: user.id, priceCents: item.price === "Entrada gratuita" ? 0 : Number(item.price.replace(/[^0-9]/g,"")) * 100,

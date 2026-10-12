@@ -10,7 +10,7 @@ import { randomUUID } from "node:crypto";
 import { authGuard } from "./authGuard";
 
 export const portal = Router();
-const categories = ["Shows", "Festas", "Baladas", "Gastronomia", "Cultura", "Gospel"];
+const categories = ["Shows", "Festas", "Baladas", "Gastronomia", "Cultura", "Gospel", "Católicos", "Outras religiões"];
 const states = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 class HttpError extends Error { constructor(public status: number, message: string) { super(message); } }
 const action = (handler: (req: Request, res: Response) => Promise<unknown>) =>
@@ -30,8 +30,8 @@ function passwordValue(value: unknown, min: number) {
     throw new HttpError(400, "Confira os campos obrigatórios.");
   return value;
 }
-function session(user: { id: string; name: string; email: string | null }) {
-  return { user: { id: user.id, name: user.name, email: user.email },
+function session(user: { id: string; name: string; email: string | null; typeAccess: string; profileAvatar: string | null }) {
+  return { user: { id: user.id, name: user.name, email: user.email, typeAccess: user.typeAccess, profileAvatar: user.profileAvatar },
     token: sign({}, secret(), { subject: user.id, expiresIn: "8h", algorithm: "HS256" }) };
 }
 portal.post("/auth/register", authGuard, action(async (req, res) => {
@@ -48,7 +48,7 @@ portal.post("/auth/register", authGuard, action(async (req, res) => {
       throw new HttpError(409, "Este email já possui uma conta.");
     return tx.users.create({ data: { name, email, password: await hash(password, 12),
       termsUsePlatform: true, termsPrivacyPolicy: true, termsUseLGPD: true },
-      select: { id: true, name: true, email: true } });
+      select: { id: true, name: true, email: true, typeAccess: true, profileAvatar: true } });
   });
   res.status(201).json(session(user));
 }));
@@ -64,7 +64,7 @@ portal.post("/auth/login", authGuard, action(async (req, res) => {
 }));
 portal.get("/auth/me", isLogged, action(async (req, res) => {
   const user = await prisma.users.findFirst({ where: { id: req.user_id, status: true },
-    select: { id: true, name: true, email: true } });
+    select: { id: true, name: true, email: true, typeAccess: true, profileAvatar: true } });
   if (!user) throw new HttpError(401, "Sua sessão expirou. Entre novamente.");
   res.json({ user });
 }));
@@ -73,14 +73,14 @@ portal.get("/events", action(async (req, res) => {
   const state = typeof req.query.state === "string" ? req.query.state : "SC";
   if (!states.includes(state)) throw new HttpError(400, "Estado inválido.");
   const q = typeof req.query.q === "string" ? req.query.q.slice(0, 120) : "";
-  const events = await prisma.events.findMany({ where: { status: true, state, country: "BR",
+  const events = await prisma.events.findMany({ where: { status: true, moderationStatus: "approved", state, country: "BR",
     ...(q ? { name: { contains: q, mode: "insensitive" } } : {}) },
     include: publicInclude, orderBy: [{ dateEvent: "asc" }, { hourEvent: "asc" }], take: 500 });
   res.json({ events });
 }));
 portal.get("/events/featured", action(async (_req, res) => {
   const now = new Date();
-  const events = await prisma.events.findMany({ where: { status: true, state: "SC", country: "BR",
+  const events = await prisma.events.findMany({ where: { status: true, moderationStatus: "approved", state: "SC", country: "BR",
     featuredPriority: { not: null }, AND: [
       { OR: [{ featuredStartsAt: null }, { featuredStartsAt: { lte: now } }] },
       { OR: [{ featuredEndsAt: null }, { featuredEndsAt: { gt: now } }] }
@@ -88,7 +88,7 @@ portal.get("/events/featured", action(async (_req, res) => {
   res.json({ events });
 }));
 portal.get("/events/:id", action(async (req, res) => {
-  const event = await prisma.events.findFirst({ where: { id: req.params.id, status: true }, include: publicInclude });
+  const event = await prisma.events.findFirst({ where: { id: req.params.id, status: true, moderationStatus: "approved" }, include: publicInclude });
   if (!event) throw new HttpError(404, "Evento não encontrado.");
   res.json({ event });
 }));
@@ -109,7 +109,19 @@ function eventInput(body: Record<string, unknown>) {
     try { if (!["http:", "https:"].includes(new URL(url).protocol)) throw new Error("invalid"); }
     catch { throw new HttpError(400, "Informe um link válido."); }
   }
-  return { category, name, description, city, state, country: "BR", localityEvent: venue,
+  const ticketUrl = typeof body.ticketUrl === "string" ? body.ticketUrl.trim() : "";
+  if (ticketUrl) { try { if (!["http:","https:"].includes(new URL(ticketUrl).protocol)) throw Error(); } catch { throw new HttpError(400,"Informe um link válido."); } }
+  const streetAddress = typeof body.streetAddress === "string" ? body.streetAddress.trim().slice(0,300) : "";
+  const coordinate = (value: unknown, limit: number) => {
+    if (value === "" || value == null) return null;
+    const n = Number(value); if (!Number.isFinite(n) || Math.abs(n)>limit) throw new HttpError(400,"Coordenadas inválidas."); return n;
+  };
+  const latitude = coordinate(body.latitude,90), longitude = coordinate(body.longitude,180);
+  if ((latitude === null) !== (longitude === null)) throw new HttpError(400,"Informe as duas coordenadas.");
+  const artists = typeof body.artists === "string" ? body.artists.split("\n").map(x=>x.trim()).filter(Boolean) : [];
+  if (artists.length>50 || artists.some(x=>x.length>120)) throw new HttpError(400,"Confira a lista de artistas.");
+  if (category === "Shows" && !artists.length) throw new HttpError(400,"Informe pelo menos um artista.");
+  return { category, name, description, city, state, country: "BR", localityEvent: venue, ticketUrl, streetAddress, latitude, longitude, artists,
     dateEvent: date, hourEvent: time, phoneForContact: phone, urlPostSocialNetwork: url,
     urlLocalityEvent: "", priceCents };
 }
@@ -141,9 +153,20 @@ portal.post("/events", isLogged, action(async (req, res) => {
   try {
     const saved = await prisma.categories.findFirst({ where: { name: category } });
     const chosen = saved ?? await prisma.categories.create({ data: { name: category, idUserOwner: req.user_id } });
-    const event = await prisma.events.create({ data: { ...data, idUserOwner: req.user_id,
-      idCategory: chosen.id, bannerImageUrl: image.secure_url }, include: publicInclude });
-    res.status(201).json({ event });
+    const placement = req.body.placement ?? "cards";
+    if (!["cards","carousel"].includes(placement)) throw new HttpError(400,"Posição inválida.");
+    const result = await prisma.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${req.user_id}))`;
+      const owner = await tx.users.findUniqueOrThrow({where:{id:req.user_id}});
+      const free = placement === "cards" && !owner.freeAdUsed;
+      const event = await tx.events.create({ data: { ...data, placement, moderationStatus:"pending", idUserOwner: req.user_id,
+        idCategory: chosen.id, bannerImageUrl: image.secure_url }, include: publicInclude });
+      const order = await tx.adOrder.create({data:{userId:req.user_id,eventId:event.id,placement,
+        amountCents:free?0:placement==="carousel"?5000:1000,status:free?"free":"awaiting_configuration"}});
+      if (free) await tx.users.update({where:{id:req.user_id},data:{freeAdUsed:true}});
+      return {event,order};
+    });
+    res.status(201).json(result);
   } catch (error) {
     if (local) await unlink(localPath).catch((): void => {});
     else await cloudinary.uploader.destroy(image.public_id).catch((): void => {});
@@ -151,17 +174,17 @@ portal.post("/events", isLogged, action(async (req, res) => {
   }
 }));
 portal.put("/events/:id", isLogged, action(async (req, res) => {
-  const owned = await prisma.events.findFirst({ where: { id: req.params.id, idUserOwner: req.user_id, userOwner: { status: true } } });
+  const owned = await prisma.events.findFirst({ where: { id: req.params.id, status: true, idUserOwner: req.user_id, userOwner: { status: true } } });
   if (!owned) throw new HttpError(404, "Evento não encontrado ou sem permissão.");
   const { category, ...data } = eventInput(req.body);
   const chosen = await prisma.categories.findFirst({ where: { name: category } });
   if (!chosen) throw new HttpError(400, "Categoria inválida.");
   const event = await prisma.events.update({ where: { id: owned.id },
-    data: { ...data, idCategory: chosen.id, updated_At: new Date() }, include: publicInclude });
+    data: { ...data, moderationStatus:"pending", moderationReason:null, featuredPriority:null, idCategory: chosen.id, updated_At: new Date() }, include: publicInclude });
   res.json({ event });
 }));
 portal.delete("/events/:id", isLogged, action(async (req, res) => {
-  const result = await prisma.events.updateMany({ where: { id: req.params.id, idUserOwner: req.user_id, userOwner: { status: true } },
+  const result = await prisma.events.updateMany({ where: { id: req.params.id, status: true, idUserOwner: req.user_id, userOwner: { status: true } },
     data: { status: false, updated_At: new Date() } });
   if (!result.count) throw new HttpError(404, "Evento não encontrado ou sem permissão.");
   res.status(204).end();

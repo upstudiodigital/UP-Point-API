@@ -32,7 +32,7 @@ test("cadastro, login, agenda pública, publicação, destaque e isolamento por 
     assert.equal((await json("/auth/login", { account: owner.email, password: "Testing12345!" })).status, 200);
     assert.equal((await fetch(base + "/auth/me", { headers: { Authorization: "Bearer " + owner.token } })).status, 200);
     const data = { name: "Evento de teste Sprint 2", category: "Shows", venue: "Arena teste", city: "Florianópolis", state: "SC",
-      date: "2027-01-25", time: "20:00", phone: "48999999999", url: "", description: "Evento fictício criado apenas para testes automatizados.", priceCents: "1250" };
+      date: "2027-01-25", time: "20:00", phone: "48999999999", url: "", description: "Evento fictício criado apenas para testes automatizados.", priceCents: "1250", artists: "Artista teste" };
     const body = new FormData();
     Object.entries(data).forEach(([key,value]) => body.append(key, value));
     const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRmsAAAAASUVORK5CYII=", "base64");
@@ -43,11 +43,11 @@ test("cadastro, login, agenda pública, publicação, destaque e isolamento por 
     events.push(event.id); files.push(path.basename(event.bannerImageUrl));
     assert.equal(event.idUserOwner, owner.user.id); assert.equal(event.priceCents, 1250);
     assert.equal((await fetch(event.bannerImageUrl)).status, 200);
-    assert.equal((await fetch(base + "/events/" + event.id)).status, 200);
+    assert.equal((await fetch(base + "/events/" + event.id)).status, 404);
     assert.equal((await json("/events/" + event.id, data, other.token, "PUT")).status, 404);
     assert.equal((await fetch(base + "/events/" + event.id, { method: "DELETE", headers: { Authorization: "Bearer " + other.token } })).status, 404);
     assert.equal((await json("/events/" + event.id, { ...data, name: "Evento atualizado" }, owner.token, "PUT")).status, 200);
-    await prisma.events.update({ where: { id: event.id }, data: { featuredPriority: 1, featuredStartsAt: new Date(Date.now() - 1000), featuredEndsAt: new Date(Date.now() + 60000) } });
+    await prisma.events.update({ where: { id: event.id }, data: { moderationStatus: "approved", featuredPriority: 1, featuredStartsAt: new Date(Date.now() - 1000), featuredEndsAt: new Date(Date.now() + 60000) } });
     const featured = await (await fetch(base + "/events/featured")).json() as { events: { id: string }[] };
     assert.ok(featured.events.some(e => e.id === event.id));
     await prisma.events.update({ where: { id: event.id }, data: { featuredEndsAt: new Date(Date.now() - 1000) } });
@@ -56,6 +56,7 @@ test("cadastro, login, agenda pública, publicação, destaque e isolamento por 
     assert.equal((await fetch(base + "/events/" + event.id, { method: "DELETE", headers: { Authorization: "Bearer " + owner.token } })).status, 204);
     assert.equal((await fetch(base + "/events/" + event.id)).status, 404);
   } finally {
+    await prisma.adOrder.deleteMany({where:{eventId:{in:events}}});
     await prisma.events.deleteMany({ where: { id: { in: events } } });
     await prisma.categories.deleteMany({ where: { idUserOwner: { in: ids } } });
     await prisma.users.deleteMany({ where: { id: { in: ids } } });

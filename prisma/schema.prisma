@@ -37,7 +37,9 @@ model Users {
   profileAvatar    String?
   profileSocialUrl String?
 
-  tutorialFirstAccess Boolean @default(true)
+    freeAdUsed Boolean @default(false)
+    adOrders AdOrder[]
+    tutorialFirstAccess Boolean @default(true)
 
   registeredBy           String?
   typeAccessRegisteredBy String?
@@ -260,7 +262,16 @@ model Events {
   state                String @default("SC")
   country              String @default("BR")
   priceCents           Int @default(0)
-  featuredPriority     Int?
+    moderationStatus     String @default("pending")
+    moderationReason     String?
+    placement            String @default("cards")
+    ticketUrl            String @default("")
+    streetAddress        String @default("")
+    latitude             Float?
+    longitude            Float?
+    artists              String[] @default([])
+    orders               AdOrder[]
+    featuredPriority     Int?
   featuredStartsAt     DateTime?
   featuredEndsAt       DateTime?
 
@@ -371,4 +382,31 @@ model Bin {
   updated_At DateTime?
 
   @@map("bin")
+}
+
+model AdOrder {
+ id String @id @default(uuid())
+ userId String
+ eventId String @unique
+ placement String
+ amountCents Int
+ status String @default("awaiting_configuration")
+ paymentMethod String @default("PIX")
+ providerPaymentId String? @unique
+ paidAt DateTime?
+ createdAt DateTime @default(now())
+ user Users @relation(fields: [userId], references: [id])
+ event Events @relation(fields: [eventId], references: [id])
+}
+model AdminAudit {
+ id String @id @default(uuid())
+ actorId String
+ action String
+ targetId String
+ detail String
+ createdAt DateTime @default(now())
+}
+model DailyTraffic {
+ day String @id
+ pageViews Int @default(0)
 }

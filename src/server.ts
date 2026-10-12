@@ -7,6 +7,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import { router } from './routes';
 import { portal, portalError } from './portal/routes';
 import path from 'node:path';
+import { dashboard } from './portal/dashboard';
 
 const app = express();
 const origins = (process.env.FRONTEND_ORIGINS ?? 'http://127.0.0.1:5174,http://localhost:5174').split(',');
@@ -15,6 +16,7 @@ app.use(cors({ origin: origins }));
 app.use(express.json({ limit: '100kb' }));
 app.use(fileUpload({ limits: { fileSize: 5 * 1024 * 1024 }, abortOnLimit: true, safeFileNames: true }));
 cloudinary.config({ cloud_name: process.env.CLOUDINARY_NAME, api_key: process.env.CLOUDINARY_KEY, api_secret: process.env.CLOUDINARY_SECRET });
+app.use(dashboard);
 app.use(portal);
 if (process.env.UPLOAD_STORAGE === 'local' && process.env.NODE_ENV !== 'production') {
   app.use('/uploads', express.static(path.join(process.cwd(), 'uploads'), { dotfiles: 'deny', setHeaders: res => { res.setHeader('X-Content-Type-Options', 'nosniff'); } }));
