@@ -1,3 +1,4 @@
+import { uploadUrl } from "./localConfig";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import prisma from "../prisma";
 import { isLogged } from "../middlewares/isLogged";
@@ -5,6 +6,8 @@ import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { v2 as cloudinary } from "cloudinary";
+import { validDocument } from "./document";
+import { paymentsReady } from "./pagbank";
 
 export const dashboard = Router();
 class Failure extends Error { constructor(public status: number, message: string) { super(message); } }
@@ -17,19 +20,19 @@ const admin = async (req: Request) => {
  const user = await account(req);
  if (user.typeAccess !== "admin") throw new Failure(403,"Acesso restrito ao administrador."); return user;
 };
-const profileSelect = {id:true,name:true,email:true,phone:true,profileAvatar:true,typeAccess:true,status:true,created_At:true} as const;
+const profileSelect = {id:true,name:true,email:true,phone:true,cpfCnpj:true,profileAvatar:true,typeAccess:true,status:true,created_At:true} as const;
 dashboard.get("/account/dashboard",isLogged,run(async(req,res)=>{
  const user = await account(req);
  const [events,orders] = await Promise.all([
-  prisma.events.findMany({where:{idUserOwner:user.id},include:{categories:{select:{name:true}}},orderBy:{created_At:"desc"}}),
+  prisma.events.findMany({where:{idUserOwner:user.id},include:{categories:{select:{name:true}},sportCompetition:{select:{id:true}}},orderBy:{created_At:"desc"}}),
   prisma.adOrder.findMany({where:{userId:user.id},include:{event:{select:{name:true}}},orderBy:{createdAt:"desc"}})
  ]);
- res.json({events,orders,freeAvailable:!user.freeAdUsed,paymentConfigured:false});
+ res.json({events,orders,freeAvailable:!user.freeAdUsed,paymentConfigured:paymentsReady(),paymentEnvironment:process.env.PAGBANK_ENVIRONMENT??"sandbox",debitEnabled:process.env.PAGBANK_DEBIT_ENABLED==="true"});
 }));
 dashboard.get("/account/profile",isLogged,run(async(req,res)=>{await account(req);res.json({user:await prisma.users.findUnique({where:{id:req.user_id},select:profileSelect})});}));
 dashboard.get("/account/events/:id",isLogged,run(async(req,res)=>{
  await account(req);
- const event=await prisma.events.findFirst({where:{id:req.params.id,idUserOwner:req.user_id,status:true},include:{categories:{select:{name:true}}}});
+ const event=await prisma.events.findFirst({where:{id:req.params.id,idUserOwner:req.user_id,status:true},include:{categories:{select:{name:true}},sportCompetition:{select:{id:true}}}});
  if(!event)throw new Failure(404,"Evento não encontrado.");res.json({event});
 }));
 dashboard.patch("/account/profile",isLogged,run(async(req,res)=>{
@@ -37,6 +40,8 @@ dashboard.patch("/account/profile",isLogged,run(async(req,res)=>{
  const name = typeof req.body.name === "string" ? req.body.name.trim() : "";
  const phone = typeof req.body.phone === "string" ? req.body.phone.trim() : "";
  if (name.length<2 || name.length>120 || phone.length>25) throw new Failure(400,"Confira os campos obrigatórios.");
+ const cpfCnpj = req.body.cpfCnpj === undefined ? undefined : String(req.body.cpfCnpj).replace(/\D/g, "");
+ if (cpfCnpj && !validDocument(cpfCnpj)) throw new Failure(400,"Informe um CPF ou CNPJ válido.");
  const file = req.files?.avatar;
  let profileAvatar: string | undefined;
  if (file) {
@@ -48,13 +53,13 @@ dashboard.patch("/account/profile",isLogged,run(async(req,res)=>{
    const filename=`${randomUUID()}.${png?"png":"jpg"}`;
    await mkdir(path.join(process.cwd(),"uploads"),{recursive:true});
    await writeFile(path.join(process.cwd(),"uploads",filename),file.data);
-   profileAvatar=`http://127.0.0.1:${process.env.PORT??3333}/uploads/${filename}`;
+   profileAvatar=uploadUrl(req,filename);
   } else {
    if (!process.env.CLOUDINARY_NAME || !process.env.CLOUDINARY_KEY || !process.env.CLOUDINARY_SECRET) throw new Failure(503,"Upload indisponível. Configure o serviço de imagens.");
    profileAvatar=await new Promise<string>((resolve,reject)=>{cloudinary.uploader.upload_stream({folder:"uppoint/avatars",resource_type:"image"},(err,result)=>{if(err||!result)reject(err??Error("Upload"));else resolve(result.secure_url);}).end(file.data);});
   }
  }
- const user=await prisma.users.update({where:{id:req.user_id},data:{name,phone,profileAvatar,updated_At:new Date()},select:profileSelect});res.json({user});
+ const user=await prisma.users.update({where:{id:req.user_id},data:{name,phone,cpfCnpj,profileAvatar,updated_At:new Date()},select:profileSelect});res.json({user});
 }));
 dashboard.get("/admin/dashboard",isLogged,run(async(req,res)=>{
  await admin(req);
@@ -65,8 +70,8 @@ dashboard.get("/admin/dashboard",isLogged,run(async(req,res)=>{
   prisma.adminAudit.findMany({orderBy:{createdAt:"desc"},take:100}),
   prisma.dailyTraffic.findMany({orderBy:{day:"desc"},take:30})
  ]);
- const totals=await prisma.adOrder.aggregate({where:{status:"paid"},_sum:{amountCents:true},_count:true});
- res.json({events,orders,users,audit,traffic,revenueCents:totals._sum.amountCents??0,paidOrders:totals._count,paymentConfigured:false});
+ const totals=await prisma.adOrder.aggregate({where:{status:"paid",OR:[{paymentEnvironment:process.env.PAGBANK_ENVIRONMENT??"sandbox"},{paymentEnvironment:null}]},_sum:{amountCents:true},_count:true});
+ res.json({events,orders,users,audit,traffic,revenueCents:totals._sum.amountCents??0,paidOrders:totals._count,paymentConfigured:paymentsReady(),paymentEnvironment:process.env.PAGBANK_ENVIRONMENT??"sandbox",debitEnabled:process.env.PAGBANK_DEBIT_ENABLED==="true"});
 }));
 dashboard.patch("/admin/events/:id",isLogged,run(async(req,res)=>{
  await admin(req);
@@ -77,7 +82,7 @@ dashboard.patch("/admin/events/:id",isLogged,run(async(req,res)=>{
  const event=await prisma.$transaction(async tx=>{
   const current=await tx.events.findUnique({where:{id:req.params.id},include:{orders:true}});
   if(!current || !current.status) throw new Failure(404,"Evento não encontrado.");
-  if(operation==="approve" && !current.orders.some(o=>["free","paid"].includes(o.status))) throw new Failure(409,"Aguarde a confirmação do pagamento PIX.");
+  if(operation==="approve" && !current.orders.some(o=>["free","paid"].includes(o.status))) throw new Failure(409,"Aguarde a confirmação do pagamento.");
   const saved=await tx.events.update({where:{id:current.id},data:operation==="delete"?{status:false,featuredPriority:null}:operation==="approve"?{moderationStatus:"approved",moderationReason:null,featuredPriority:current.placement==="carousel"?1:null}:{moderationStatus:"rejected",moderationReason:reason,featuredPriority:null}});
   await tx.adminAudit.create({data:{actorId:req.user_id,targetId:current.id,action:operation,detail:reason}});return saved;
  });res.json({event});

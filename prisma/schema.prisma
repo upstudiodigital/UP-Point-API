@@ -239,6 +239,7 @@ model TypesProducts {
 }
 
 model Events {
+  sportCompetition SportCompetition?
   id          String @id @default(uuid())
   idUserOwner String
   idProduct   String?
@@ -384,15 +385,45 @@ model Bin {
   @@map("bin")
 }
 
+model PaymentAttempt {
+ id String @id @default(uuid())
+ orderId String @unique
+ method String
+ payload Json
+ result Json?
+ createdAt DateTime @default(now())
+}
+model PaymentEmail {
+ id String @id @default(uuid())
+ orderId String
+ recipientType String
+ recipient String?
+ sentAt DateTime?
+ attempts Int @default(0)
+ nextAttemptAt DateTime @default(now())
+ createdAt DateTime @default(now())
+ @@unique([orderId, recipientType])
+}
 model AdOrder {
+ billedMonths Int @default(1)
+ monthlyRateCents Int @default(0)
+ advertisingFrom String @default("")
+ advertisingUntil String @default("")
+ publicationKey String? @unique
  id String @id @default(uuid())
  userId String
  eventId String @unique
  placement String
  amountCents Int
  status String @default("awaiting_configuration")
- paymentMethod String @default("PIX")
+   paymentMethod String @default("PAGBANK")
  providerPaymentId String? @unique
+   checkoutId String? @unique
+   checkoutUrl String?
+   checkoutExpiresAt DateTime?
+   checkoutPayload Json?
+   providerOrderId String?
+   paymentEnvironment String?
  paidAt DateTime?
  createdAt DateTime @default(now())
  user Users @relation(fields: [userId], references: [id])
@@ -409,4 +440,103 @@ model AdminAudit {
 model DailyTraffic {
  day String @id
  pageViews Int @default(0)
+}
+
+model SportCompetition {
+ advertisingFrom String @default("")
+ advertisingUntil String @default("")
+ billedMonths Int @default(1)
+ monthlyRateCents Int @default(0)
+ startsOn String @default("")
+ endsOn String @default("")
+ id String @id @default(uuid())
+ eventId String @unique
+ sport String
+ edition String
+ format String
+ admissionType String @default("free")
+ donation String @default("")
+ winPoints Int @default(3)
+ drawPoints Int @default(1)
+ lossPoints Int @default(0)
+ tieBreakers String[] @default(["points", "wins", "goalDifference", "goalsFor"])
+ rulesUrl String @default("")
+ event Events @relation(fields:[eventId], references:[id], onDelete:Cascade)
+ teams SportTeam[]
+ rounds SportRound[]
+ matches SportMatch[]
+}
+model SportTeam {
+ id String @id @default(uuid())
+ competitionId String
+ name String
+ crestUrl String @default("")
+ groupName String @default("")
+ pointsAdjustment Int @default(0)
+ adjustmentReason String @default("")
+ competition SportCompetition @relation(fields:[competitionId],references:[id],onDelete:Cascade)
+ players SportPlayer[]
+ homeMatches SportMatch[] @relation("HomeTeam")
+ awayMatches SportMatch[] @relation("AwayTeam")
+ @@unique([competitionId,name])
+}
+model SportPlayer {
+ id String @id @default(uuid())
+ teamId String
+ name String
+ shirt Int
+ position String
+ team SportTeam @relation(fields:[teamId],references:[id],onDelete:Cascade)
+ selections SportSelection[]
+ @@unique([teamId,shirt])
+}
+model SportRound {
+ id String @id @default(uuid())
+ competitionId String
+ number Int
+ name String
+ competition SportCompetition @relation(fields:[competitionId],references:[id],onDelete:Cascade)
+ matches SportMatch[]
+ @@unique([competitionId,number])
+}
+model SportMatch {
+ id String @id @default(uuid())
+ competitionId String
+ roundId String
+ homeId String
+ awayId String
+ date String
+ time String
+ venue String
+ city String
+ address String
+ latitude Float?
+ longitude Float?
+ status String @default("scheduled")
+ homeScore Int?
+ awayScore Int?
+ countsForStandings Boolean @default(true)
+ admissionType String @default("inherit")
+ priceCents Int @default(0)
+ donation String @default("")
+ homeFormation String @default("")
+ awayFormation String @default("")
+ officials Json @default("[]")
+ officialsConfirmed Boolean @default(false)
+ lineupConfirmed Boolean @default(false)
+ competition SportCompetition @relation(fields:[competitionId],references:[id],onDelete:Cascade)
+ round SportRound @relation(fields:[roundId],references:[id],onDelete:Cascade)
+ home SportTeam @relation("HomeTeam",fields:[homeId],references:[id])
+ away SportTeam @relation("AwayTeam",fields:[awayId],references:[id])
+ selections SportSelection[]
+ @@index([competitionId,date,time])
+}
+model SportSelection {
+ matchId String
+ playerId String
+ starter Boolean @default(true)
+ position String
+ match SportMatch @relation(fields:[matchId],references:[id],onDelete:Cascade)
+ player SportPlayer @relation(fields:[playerId],references:[id],onDelete:Cascade)
+ @@id([matchId,playerId])
 }

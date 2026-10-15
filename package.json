@@ -26,7 +26,7 @@
     "uuid": "^11.0.5"
   },
   "scripts": {
-    "dev": "tsx watch src/server.ts",
+    "dev": "tsx scripts/dev-local.ts",
     "build": "npm run typecheck && tsup",
     "start": "node dist/server.js",
     "run-build": "npx prisma migrate deploy",

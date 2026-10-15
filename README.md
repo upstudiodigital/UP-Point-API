@@ -84,3 +84,32 @@ Conta administrativa de demonstração (somente após autorização, banco local
     npx tsx scripts/create-development-admin.ts
 
 Credenciais em ../.local/admin-account.json, não versionadas. Em produção, provisionar administradores pelo procedimento interno autorizado; o cadastro público sempre cria client. O script não funciona fora de uppoint_dev em 127.0.0.1:5434.
+
+
+## PagBank — PIX, crédito e débito
+
+Configurar PAGBANK_ENVIRONMENT=sandbox, PAGBANK_TOKEN e PAGBANK_FRONTEND_URL no .env ignorado. PAGBANK_DEBIT_ENABLED=false até a liberação da conta. PAGBANK_WEBHOOK_URL pode ficar vazio somente em desenvolvimento sandbox local; produção exige URL HTTPS de webhook e da aplicação. O checkout abre fora do UP Point e não coleta cartão/CVV na API. Crédito configurado em uma parcela. Não há boleto configurado; a opção de carteira PagBank é controlada pelo próprio provedor.
+
+POST /payments/orders/:id/checkout exige autenticação, dono ativo, anúncio ativo e pedido não quitado. Calcula a cobrança pelos dados já gravados no banco, persiste payload estável e usa chave de idempotência. Retorna URL apenas em domínio PagBank permitido para o ambiente. Checkout expira em 24 horas; renovação automática não está implementada e exige atendimento. Chamadas são limitadas a 20/usuário/minuto em memória.
+
+POST /payments/orders/:id/sync consulta checkout/pedido no PagBank (dono ou administrador), confirma somente status PAID, referência, BRL, valor total e data válidos. Pagamento não aprova automaticamente o evento. Estorno retira a elegibilidade e preserva a data original do pagamento. Não executa transferências ou reembolsos.
+
+POST /payments/pagbank/webhook é montado antes do parser JSON para preservar os bytes originais. Exige x-authenticity-token validado por SHA-256(token + '-' + rawBody), comparação em tempo constante e nova consulta autenticada ao PagBank. Não confia no status recebido nem em links arbitrários do payload. Repetições são idempotentes. Sem URL pública, usar sync manual; produção não fica pronta sem webhook.
+
+Para testar com dados fictícios no ambiente local:
+
+    npx tsx scripts/seed-payment-demo.ts
+    npx tsx scripts/verify-pagbank-sandbox.ts
+
+O primeiro comando prepara um anúncio fictício para development-organizer sem alterar pedidos existentes. O segundo cria/consulta checkout real somente no sandbox, sem pagamento real e sem expor token; guarda resultado em ../.local/pagbank-sandbox-checkout.json. Documentação e limitações em ../UP-Point-Web/docs/pagbank.md.
+
+Testes PagBank: assinatura adulterada, valores/moeda divergentes, captura vs autorização, checkout repetido/concorrente, isolamento por dono, consulta autenticada, notificações duplicadas e estorno com preservação do histórico. Provedor simulado, dados próprios removidos ao terminar. O checkout real foi criado e consultado em sandbox; liquidação por método e webhook externo permanecem como validação de lançamento.
+
+
+### Correções Sprint 2 — perfil, documento e localização
+
+- CPF/CNPJ obrigatório para criar/editar anúncios; dígitos verificadores validados na API. Essa verificação não comprova identidade ou titularidade. Documento privado no perfil/administrador, ausente da agenda pública.
+- Cada envio exige `acceptResponsibility=true`, além da confirmação visual. UF de publicação fixa em SC.
+- `/locations/search?address=...`: Photon, acionado pelo botão, com cache de 24h e limite global de uma consulta por 1,1s por processo. `PHOTON_API_URL` permite trocar para instância própria. Protótipo local usa o servidor demo, sem garantia de disponibilidade e sujeito a limites: https://github.com/komoot/photon#demo-server . Antes de escalar produção, usar serviço dedicado e rate limit compartilhado entre réplicas.
+- `/weather/forecast?latitude=...&longitude=...&date=...`: Open-Meteo, cache de 15min e limite global de 1 chamada/s por processo; apenas hoje e próximos 15 dias. Fora disso retorna `available:false`. Produção exige `OPEN_METEO_API_KEY` para endpoint comercial: https://open-meteo.com/en/pricing . O plano não foi contratado automaticamente.
+- Consultas externas enviam somente endereço público do evento/coordenadas, nunca CPF ou perfil. Atribuições visíveis ao OpenStreetMap e Open-Meteo.

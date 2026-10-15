@@ -1,0 +1,4 @@
+CREATE TABLE "PaymentAttempt" ("id" TEXT NOT NULL, "orderId" TEXT NOT NULL, "method" TEXT NOT NULL, "payload" JSONB NOT NULL, "result" JSONB, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "PaymentAttempt_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "PaymentAttempt_orderId_key" ON "PaymentAttempt"("orderId");
+CREATE TABLE "PaymentEmail" ("id" TEXT NOT NULL, "orderId" TEXT NOT NULL, "recipientType" TEXT NOT NULL, "recipient" TEXT, "sentAt" TIMESTAMP(3), "attempts" INTEGER NOT NULL DEFAULT 0, "nextAttemptAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "PaymentEmail_pkey" PRIMARY KEY ("id"));
+CREATE UNIQUE INDEX "PaymentEmail_orderId_recipientType_key" ON "PaymentEmail"("orderId", "recipientType");

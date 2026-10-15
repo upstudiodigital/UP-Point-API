@@ -1,3 +1,7 @@
+import { activePublication, publicationPeriod } from "./publicationPeriod";
+import { parseProgramme, saveProgramme } from "./championshipSetup";
+import { sportInput, SportError, admission, scCity } from "./sportRules";
+import { uploadUrl } from "./localConfig";
 import { Router, type Request, type Response, type NextFunction } from "express";
 import { hash, compare } from "bcryptjs";
 import { sign } from "jsonwebtoken";
@@ -8,9 +12,12 @@ import { mkdir, writeFile, unlink } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { authGuard } from "./authGuard";
+import { PaymentError, paymentsReady } from "./pagbank";
+
+import { validDocument } from "./document";
 
 export const portal = Router();
-const categories = ["Shows", "Festas", "Baladas", "Gastronomia", "Cultura", "Gospel", "Católicos", "Outras religiões"];
+const categories = ["Shows", "Festas", "Baladas", "Gastronomia", "Cultura", "Gospel", "Católicos", "Outras religiões", "Esportes"];
 const states = ["AC","AL","AP","AM","BA","CE","DF","ES","GO","MA","MT","MS","MG","PA","PB","PR","PE","PI","RJ","RN","RS","RO","RR","SC","SP","SE","TO"];
 class HttpError extends Error { constructor(public status: number, message: string) { super(message); } }
 const action = (handler: (req: Request, res: Response) => Promise<unknown>) =>
@@ -64,11 +71,11 @@ portal.post("/auth/login", authGuard, action(async (req, res) => {
 }));
 portal.get("/auth/me", isLogged, action(async (req, res) => {
   const user = await prisma.users.findFirst({ where: { id: req.user_id, status: true },
-    select: { id: true, name: true, email: true, typeAccess: true, profileAvatar: true } });
+    select: { id: true, name: true, email: true, typeAccess: true, profileAvatar: true, cpfCnpj: true } });
   if (!user) throw new HttpError(401, "Sua sessão expirou. Entre novamente.");
   res.json({ user });
 }));
-const publicInclude = { categories: { select: { name: true } } } as const;
+const publicInclude = { categories: { select: { name: true } }, sportCompetition:{select:{id:true,sport:true,edition:true,format:true,admissionType:true,donation:true}} } as const;
 portal.get("/events", action(async (req, res) => {
   const state = typeof req.query.state === "string" ? req.query.state : "SC";
   if (!states.includes(state)) throw new HttpError(400, "Estado inválido.");
@@ -81,14 +88,14 @@ portal.get("/events", action(async (req, res) => {
 portal.get("/events/featured", action(async (_req, res) => {
   const now = new Date();
   const events = await prisma.events.findMany({ where: { status: true, moderationStatus: "approved", state: "SC", country: "BR",
-    featuredPriority: { not: null }, AND: [
+    featuredPriority: { not: null }, AND: [activePublication(),
       { OR: [{ featuredStartsAt: null }, { featuredStartsAt: { lte: now } }] },
       { OR: [{ featuredEndsAt: null }, { featuredEndsAt: { gt: now } }] }
     ] }, include: publicInclude, orderBy: { featuredPriority: "asc" }, take: 10 });
   res.json({ events });
 }));
 portal.get("/events/:id", action(async (req, res) => {
-  const event = await prisma.events.findFirst({ where: { id: req.params.id, status: true, moderationStatus: "approved" }, include: publicInclude });
+  const event = await prisma.events.findFirst({ where: { id: req.params.id, status: true, moderationStatus: "approved", AND: [activePublication()] }, include: publicInclude });
   if (!event) throw new HttpError(404, "Evento não encontrado.");
   res.json({ event });
 }));
@@ -97,7 +104,7 @@ function eventInput(body: Record<string, unknown>) {
   const category = text(body.category);
   const state = text(body.state), city = text(body.city, 2, 120), venue = text(body.venue, 3, 200);
   const date = text(body.date), time = text(body.time), phone = text(body.phone, 8, 25);
-  if (!categories.includes(category) || !states.includes(state) ||
+  if (!categories.includes(category) || state !== "SC" ||
       !/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(date)) ||
       new Date(date).toISOString().slice(0,10) !== date ||
       !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new HttpError(400, "Confira categoria, local, data e horário.");
@@ -112,6 +119,7 @@ function eventInput(body: Record<string, unknown>) {
   const ticketUrl = typeof body.ticketUrl === "string" ? body.ticketUrl.trim() : "";
   if (ticketUrl) { try { if (!["http:","https:"].includes(new URL(ticketUrl).protocol)) throw Error(); } catch { throw new HttpError(400,"Informe um link válido."); } }
   const streetAddress = typeof body.streetAddress === "string" ? body.streetAddress.trim().slice(0,300) : "";
+  if (streetAddress.length < 5) throw new HttpError(400,"Informe o endereço completo.");
   const coordinate = (value: unknown, limit: number) => {
     if (value === "" || value == null) return null;
     const n = Number(value); if (!Number.isFinite(n) || Math.abs(n)>limit) throw new HttpError(400,"Coordenadas inválidas."); return n;
@@ -128,7 +136,16 @@ function eventInput(body: Record<string, unknown>) {
 portal.post("/events", isLogged, action(async (req, res) => {
   const user = await prisma.users.findFirst({ where: { id: req.user_id, status: true } });
   if (!user) throw new HttpError(401, "Entre novamente.");
+  if (!validDocument(user.cpfCnpj)) throw new HttpError(400, "Cadastre um CPF ou CNPJ válido em Minha conta antes de publicar.");
+  if (req.body.acceptResponsibility !== true && req.body.acceptResponsibility !== "true") throw new HttpError(400, "Confirme sua responsabilidade pelas informações do evento.");
+  const publicationKey=typeof req.body.publicationKey==="string" && /^[0-9a-f-]{36}$/i.test(req.body.publicationKey)?req.body.publicationKey:undefined;
+  if(publicationKey){const existing=await prisma.adOrder.findFirst({where:{publicationKey,userId:req.user_id},include:{event:{include:publicInclude}}});if(existing)return res.json({event:existing.event,order:existing});}
   const { category, ...data } = eventInput(req.body);
+  const sport = category === "Esportes" ? sportInput(req.body) : undefined;
+  const period = sport?.format === "championship" ? publicationPeriod(req.body,sport.endsOn) : undefined;
+  const programme = period ? parseProgramme(req.body.programme,sport!.startsOn,sport!.endsOn) : undefined;
+  if(sport)data.city=scCity(data.city);
+  if(sport)data.priceCents=admission(req.body.admissionType,req.body.donation,req.body.priceCents).priceCents;
   const file = req.files?.bannerEvento;
   if (!file || Array.isArray(file) || !["image/jpeg", "image/png"].includes(file.mimetype) ||
       file.size > 5 * 1024 * 1024) throw new HttpError(400, "Selecione uma imagem JPG ou PNG de até 5 MB.");
@@ -143,7 +160,7 @@ portal.post("/events", isLogged, action(async (req, res) => {
   const image = local ? await (async () => {
     await mkdir(path.dirname(localPath), { recursive: true });
     await writeFile(localPath, file.data);
-    return { secure_url: `http://127.0.0.1:${process.env.PORT ?? 3333}/uploads/${localName}`, public_id: localName };
+    return { secure_url: uploadUrl(req,localName), public_id: localName };
   })() : await new Promise<{ secure_url: string; public_id: string }>((resolve, reject) => {
     cloudinary.uploader.upload_stream({ folder: "uppoint/events", resource_type: "image" }, (error, result) => {
       if (error || !result) reject(error ?? new Error("Upload falhou."));
@@ -157,15 +174,18 @@ portal.post("/events", isLogged, action(async (req, res) => {
     if (!["cards","carousel"].includes(placement)) throw new HttpError(400,"Posição inválida.");
     const result = await prisma.$transaction(async tx => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${req.user_id}))`;
+      if(publicationKey){const existing=await tx.adOrder.findFirst({where:{publicationKey,userId:req.user_id},include:{event:{include:publicInclude}}});if(existing)return {event:existing.event,order:existing};}
       const owner = await tx.users.findUniqueOrThrow({where:{id:req.user_id}});
-      const free = placement === "cards" && !owner.freeAdUsed;
+      const free = !period && placement === "cards" && !owner.freeAdUsed;
       const event = await tx.events.create({ data: { ...data, placement, moderationStatus:"pending", idUserOwner: req.user_id,
         idCategory: chosen.id, bannerImageUrl: image.secure_url }, include: publicInclude });
-      const order = await tx.adOrder.create({data:{userId:req.user_id,eventId:event.id,placement,
-        amountCents:free?0:placement==="carousel"?5000:1000,status:free?"free":"awaiting_configuration"}});
+      if(sport){const c=await tx.sportCompetition.create({data:{...sport,...period,eventId:event.id}});if(programme)await saveProgramme(tx,c.id,programme); }
+      const order = await tx.adOrder.create({data:{publicationKey,userId:req.user_id,eventId:event.id,placement,
+        ...period,amountCents:period?period.billedMonths*period.monthlyRateCents:free?0:placement==="carousel"?5000:1000,status:free?"free":paymentsReady()?"awaiting_payment":"awaiting_configuration"}});
       if (free) await tx.users.update({where:{id:req.user_id},data:{freeAdUsed:true}});
       return {event,order};
     });
+    if(result.event.bannerImageUrl!==image.secure_url){if(local)await unlink(localPath).catch(()=>{});else await cloudinary.uploader.destroy(image.public_id).catch(()=>{});}
     res.status(201).json(result);
   } catch (error) {
     if (local) await unlink(localPath).catch((): void => {});
@@ -176,7 +196,15 @@ portal.post("/events", isLogged, action(async (req, res) => {
 portal.put("/events/:id", isLogged, action(async (req, res) => {
   const owned = await prisma.events.findFirst({ where: { id: req.params.id, status: true, idUserOwner: req.user_id, userOwner: { status: true } } });
   if (!owned) throw new HttpError(404, "Evento não encontrado ou sem permissão.");
+  const user = await prisma.users.findUniqueOrThrow({where:{id:req.user_id}});
+  if (!validDocument(user.cpfCnpj)) throw new HttpError(400, "Cadastre um CPF ou CNPJ válido em Minha conta antes de publicar.");
+  if (req.body.acceptResponsibility !== true) throw new HttpError(400, "Confirme sua responsabilidade pelas informações do evento.");
   const { category, ...data } = eventInput(req.body);
+  const competition=await prisma.sportCompetition.findUnique({where:{eventId:owned.id}});
+  if(competition && category!=="Esportes")throw new HttpError(409,"Edite sua competição na área Esportes.");
+  if(!competition && category==="Esportes")throw new HttpError(400,"Cadastre um novo evento esportivo.");
+  if(competition && (data.dateEvent<competition.startsOn || data.dateEvent>competition.endsOn))throw new HttpError(400,"Confira o período desta edição.");
+  if(competition)data.priceCents=admission(competition.admissionType,competition.donation,data.priceCents).priceCents;
   const chosen = await prisma.categories.findFirst({ where: { name: category } });
   if (!chosen) throw new HttpError(400, "Categoria inválida.");
   const event = await prisma.events.update({ where: { id: owned.id },
@@ -190,6 +218,8 @@ portal.delete("/events/:id", isLogged, action(async (req, res) => {
   res.status(204).end();
 }));
 export function portalError(error: unknown, _req: Request, res: Response, _next: NextFunction) {
+  if (error instanceof SportError) return res.status(error.status).json({message:error.message});
+  if (error instanceof PaymentError) return res.status(error.status).json({message:error.message});
   if (error instanceof HttpError) return res.status(error.status).json({ message: error.message });
   console.error("Falha na API", error instanceof Error ? error.name : "Erro desconhecido");
   return res.status(500).json({ message: "Não foi possível concluir a solicitação." });

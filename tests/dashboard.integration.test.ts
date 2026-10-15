@@ -11,9 +11,9 @@ test("moderação, gratuidade concorrente, preço autoritativo, privilégios e h
  const base="http://127.0.0.1:3333",users:string[]=[],events:string[]=[],files:string[]=[];
  const headers=(token:string)=>({Authorization:`Bearer ${token}`});
  const json=(route:string,body:unknown,token:string,method="PATCH")=>fetch(base+route,{method,headers:{...headers(token),"Content-Type":"application/json"},body:JSON.stringify(body)});
- const register=async()=>{const response=await json("/auth/register",{name:"Teste Dashboard",email:`test-${randomUUID()}@example.test`,password:"Testing12345!",acceptTerms:true},"","POST");assert.equal(response.status,201,await response.clone().text());const data=await response.json() as {token:string;user:{id:string}};users.push(data.user.id);return data;};
+ const register=async()=>{const response=await json("/auth/register",{name:"Teste Dashboard",email:`test-${randomUUID()}@example.test`,password:"Testing12345!",acceptTerms:true},"","POST");assert.equal(response.status,201,await response.clone().text());const data=await response.json() as {token:string;user:{id:string}};users.push(data.user.id);await prisma.users.update({where:{id:data.user.id},data:{cpfCnpj:"52998224725"}});return data;};
  const create=async(token:string,placement="cards")=>{
-  const form=new FormData();const input={name:"Evento teste Dashboard",category:"Shows",venue:"Arena teste",streetAddress:"Rua teste 123 Centro",city:"Florianópolis",state:"SC",date:"2027-01-26",time:"20:00",phone:"48999999999",description:"Este evento foi criado apenas para testar os painéis.",artists:"Artista A\nArtista B",ticketUrl:"https://example.test/ingresso",latitude:"-27.5954",longitude:"-48.548",placement,amountCents:"0"};
+  const form=new FormData();const input={acceptResponsibility:"true",name:"Evento teste Dashboard",category:"Shows",venue:"Arena teste",streetAddress:"Rua teste 123 Centro",city:"Florianópolis",state:"SC",date:"2027-01-26",time:"20:00",phone:"48999999999",description:"Este evento foi criado apenas para testar os painéis.",artists:"Artista A\nArtista B",ticketUrl:"https://example.test/ingresso",latitude:"-27.5954",longitude:"-48.548",placement,amountCents:"0"};
   Object.entries(input).forEach(([key,value])=>form.append(key,value));
   const png=Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aRmsAAAAASUVORK5CYII=","base64");form.append("bannerEvento",new Blob([png],{type:"image/png"}),"test.png");
   const response=await fetch(base+"/events",{method:"POST",headers:headers(token),body:form});assert.equal(response.status,201,await response.clone().text());
@@ -36,7 +36,8 @@ test("moderação, gratuidade concorrente, preço autoritativo, privilégios e h
   assert.deepEqual(created.map(x=>x.order.amountCents).sort((a,b)=>a-b),[0,1000]);
   const free=created.find(x=>x.order.amountCents===0)!,paid=created.find(x=>x.order.amountCents===1000)!;
   assert.equal((await fetch(base+`/account/events/${free.event.id}`,{headers:headers(other.token)})).status,404);
-  assert.equal(free.order.status,"free");assert.equal(paid.order.status,"awaiting_configuration");
+  const settings=await (await fetch(base+"/account/dashboard",{headers:headers(client.token)})).json() as {paymentConfigured:boolean};
+  assert.equal(free.order.status,"free");assert.equal(paid.order.status,settings.paymentConfigured?"awaiting_payment":"awaiting_configuration");
   assert.equal((await fetch(base+`/events/${free.event.id}`)).status,404);
   assert.equal((await json(`/admin/events/${free.event.id}`,{operation:"approve"},client.token)).status,403);
   assert.equal((await json(`/admin/events/${paid.event.id}`,{operation:"approve"},administrator.token)).status,409);

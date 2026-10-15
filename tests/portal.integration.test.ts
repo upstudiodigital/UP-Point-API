@@ -31,7 +31,11 @@ test("cadastro, login, agenda pública, publicação, destaque e isolamento por 
     assert.equal((await json("/auth/login", { account: owner.email, password: "errada" })).status, 401);
     assert.equal((await json("/auth/login", { account: owner.email, password: "Testing12345!" })).status, 200);
     assert.equal((await fetch(base + "/auth/me", { headers: { Authorization: "Bearer " + owner.token } })).status, 200);
-    const data = { name: "Evento de teste Sprint 2", category: "Shows", venue: "Arena teste", city: "Florianópolis", state: "SC",
+    assert.equal((await json("/events", {}, owner.token)).status, 400);
+    assert.equal((await json("/account/profile", {name:"Teste Sprint 2",cpfCnpj:"11111111111"}, owner.token,"PATCH")).status,400);
+    assert.equal((await json("/account/profile", {name:"Teste Sprint 2",cpfCnpj:"52998224725"}, owner.token,"PATCH")).status,200);
+    assert.equal((await json("/events", {}, owner.token)).status,400);
+    const data = { publicationKey: randomUUID(), acceptResponsibility: "true", streetAddress:"Rua fictícia 123, Centro", name: "Evento de teste Sprint 2", category: "Shows", venue: "Arena teste", city: "Florianópolis", state: "SC",
       date: "2027-01-25", time: "20:00", phone: "48999999999", url: "", description: "Evento fictício criado apenas para testes automatizados.", priceCents: "1250", artists: "Artista teste" };
     const body = new FormData();
     Object.entries(data).forEach(([key,value]) => body.append(key, value));
@@ -41,12 +45,15 @@ test("cadastro, login, agenda pública, publicação, destaque e isolamento por 
     assert.equal(created.status, 201, await created.clone().text());
     const { event } = await created.json() as { event: { id: string; bannerImageUrl: string; priceCents: number; idUserOwner: string } };
     events.push(event.id); files.push(path.basename(event.bannerImageUrl));
+    const retry=await json("/events",{publicationKey:data.publicationKey,acceptResponsibility:true},owner.token);
+    assert.equal(retry.status,200);assert.equal((await retry.json() as {event:{id:string}}).event.id,event.id);
+    assert.equal(await prisma.adOrder.count({where:{publicationKey:data.publicationKey}}),1);
     assert.equal(event.idUserOwner, owner.user.id); assert.equal(event.priceCents, 1250);
     assert.equal((await fetch(event.bannerImageUrl)).status, 200);
     assert.equal((await fetch(base + "/events/" + event.id)).status, 404);
     assert.equal((await json("/events/" + event.id, data, other.token, "PUT")).status, 404);
     assert.equal((await fetch(base + "/events/" + event.id, { method: "DELETE", headers: { Authorization: "Bearer " + other.token } })).status, 404);
-    assert.equal((await json("/events/" + event.id, { ...data, name: "Evento atualizado" }, owner.token, "PUT")).status, 200);
+    assert.equal((await json("/events/" + event.id, { ...data, acceptResponsibility: true, name: "Evento atualizado" }, owner.token, "PUT")).status, 200);
     await prisma.events.update({ where: { id: event.id }, data: { moderationStatus: "approved", featuredPriority: 1, featuredStartsAt: new Date(Date.now() - 1000), featuredEndsAt: new Date(Date.now() + 60000) } });
     const featured = await (await fetch(base + "/events/featured")).json() as { events: { id: string }[] };
     assert.ok(featured.events.some(e => e.id === event.id));
