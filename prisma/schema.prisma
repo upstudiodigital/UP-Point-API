@@ -239,6 +239,8 @@ model TypesProducts {
 }
 
 model Events {
+  admissionType String @default("")
+  donation String @default("")
   sportCompetition SportCompetition?
   id          String @id @default(uuid())
   idUserOwner String
@@ -443,6 +445,7 @@ model DailyTraffic {
 }
 
 model SportCompetition {
+ sessions SportSession[]
  advertisingFrom String @default("")
  advertisingUntil String @default("")
  billedMonths Int @default(1)
@@ -539,4 +542,23 @@ model SportSelection {
  match SportMatch @relation(fields:[matchId],references:[id],onDelete:Cascade)
  player SportPlayer @relation(fields:[playerId],references:[id],onDelete:Cascade)
  @@id([matchId,playerId])
+}
+model SportSession {
+ officialsConfirmed Boolean @default(false)
+ latitude Float?
+ longitude Float?
+ id String @id @default(uuid())
+ competitionId String
+ title String
+ category String @default("")
+ date String
+ time String
+ venue String
+ city String
+ address String
+ details Json @default("{}")
+ officials Json @default("[]")
+ status String @default("scheduled")
+ competition SportCompetition @relation(fields:[competitionId],references:[id],onDelete:Cascade)
+ @@index([competitionId,date,time])
 }

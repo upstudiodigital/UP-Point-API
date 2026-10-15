@@ -65,7 +65,24 @@ test(
         sportEndDate: "2026-11-21",
         advertisingFrom: "2026-10-20",
         advertisingUntil: "2026-11-21",
-        programme: JSON.stringify({teams:[{key:"initial-a",name:"Initial A"},{key:"initial-b",name:"Initial B"}],matches:[{homeKey:"initial-a",awayKey:"initial-b",round:2,date:"2026-11-21",time:"14:00",venue:"Campo teste",city:"Florianópolis",address:"Rua teste 123 Centro"}]}),
+        programme: JSON.stringify({
+          teams: [
+            { key: "initial-a", name: "Initial A" },
+            { key: "initial-b", name: "Initial B" },
+          ],
+          matches: [
+            {
+              homeKey: "initial-a",
+              awayKey: "initial-b",
+              round: 2,
+              date: "2026-11-21",
+              time: "14:00",
+              venue: "Campo teste",
+              city: "Florianópolis",
+              address: "Rua teste 123 Centro",
+            },
+          ],
+        }),
         admissionType: "donation",
         donation: "1 kg de alimento",
         venue: "Campo teste",
@@ -107,12 +124,25 @@ test(
         where: { eventId },
       });
       competitionId = c.id;
-      const billed=await prisma.adOrder.findUniqueOrThrow({where:{eventId}});
-      assert.equal(billed.amountCents,10000);assert.equal(billed.billedMonths,2);
-      assert.notEqual(billed.status,"free");
-      assert.equal((await prisma.users.findUniqueOrThrow({where:{id:owner.user.id}})).freeAdUsed,false);
-      assert.equal(await prisma.sportTeam.count({where:{competitionId}}),2);
-      assert.equal(await prisma.sportMatch.count({where:{competitionId}}),1);
+      const billed = await prisma.adOrder.findUniqueOrThrow({
+        where: { eventId },
+      });
+      assert.equal(billed.amountCents, 10000);
+      assert.equal(billed.billedMonths, 2);
+      assert.notEqual(billed.status, "free");
+      assert.equal(
+        (await prisma.users.findUniqueOrThrow({ where: { id: owner.user.id } }))
+          .freeAdUsed,
+        false,
+      );
+      assert.equal(
+        await prisma.sportTeam.count({ where: { competitionId } }),
+        2,
+      );
+      assert.equal(
+        await prisma.sportMatch.count({ where: { competitionId } }),
+        1,
+      );
       assert.equal(
         (await prisma.events.findUniqueOrThrow({ where: { id: eventId } }))
           .priceCents,
@@ -159,7 +189,17 @@ test(
         ).player;
       const round = (await add("rounds", { number: 1, name: "Round one" }))
         .round;
-      assert.equal((await request(`/account/sports/${c.id}/rounds/${round.id}`,owner.token,{number:1,name:"Primeira rodada revisada"},"PATCH")).status,200);
+      assert.equal(
+        (
+          await request(
+            `/account/sports/${c.id}/rounds/${round.id}`,
+            owner.token,
+            { number: 1, name: "Primeira rodada revisada" },
+            "PATCH",
+          )
+        ).status,
+        200,
+      );
       const match = (
         await add("matches", {
           roundId: round.id,
@@ -190,8 +230,14 @@ test(
         ).status,
         400,
       );
-      await prisma.adOrder.updateMany({where:{eventId},data:{status:"paid",paidAt:new Date()}});
-      await prisma.sportCompetition.update({where:{id:c.id},data:{advertisingFrom:"2026-10-01"}});
+      await prisma.adOrder.updateMany({
+        where: { eventId },
+        data: { status: "paid", paidAt: new Date() },
+      });
+      await prisma.sportCompetition.update({
+        where: { id: c.id },
+        data: { advertisingFrom: "2026-10-01" },
+      });
       await prisma.events.update({
         where: { id: eventId },
         data: { moderationStatus: "approved" },
@@ -247,19 +293,49 @@ test(
       ).json()) as typeof publicData;
       assert.equal(publicData.competition.matches[0].selections.length, 2);
       // A championship remains visible after its opening date, including played matches.
-      await prisma.events.update({where:{id:eventId},data:{dateEvent:"2026-10-01",featuredPriority:1}});
-      assert.equal((await fetch(base+`/events/${eventId}`)).status,200);
-      const featured=await (await fetch(base+"/events/featured")).json() as {events:{id:string}[]};
-      assert.ok(featured.events.some(e=>e.id===eventId));
-      await prisma.sportCompetition.update({where:{id:c.id},data:{advertisingUntil:"2026-10-12"}});
-      assert.equal((await fetch(base+`/events/${eventId}`)).status,404);
-      assert.equal((await fetch(base+`/sports/competitions/${c.id}`)).status,404);
-      const expired=await (await fetch(base+"/events/featured")).json() as {events:{id:string}[]};
-      assert.ok(!expired.events.some(e=>e.id===eventId));
-      assert.equal((await fetch(base+`/account/sports/${c.id}`,{headers:{Authorization:`Bearer ${owner.token}`}})).status,200);
-      await prisma.sportCompetition.update({where:{id:c.id},data:{advertisingUntil:"2026-11-21",format:"meeting"}});
-      assert.equal((await fetch(base+`/events/${eventId}`)).status,404);
-      await prisma.sportCompetition.update({where:{id:c.id},data:{format:"championship"}});
+      await prisma.events.update({
+        where: { id: eventId },
+        data: { dateEvent: "2026-10-01", featuredPriority: 1 },
+      });
+      assert.equal((await fetch(base + `/events/${eventId}`)).status, 200);
+      const featured = (await (
+        await fetch(base + "/events/featured")
+      ).json()) as { events: { id: string }[] };
+      assert.ok(featured.events.some((e) => e.id === eventId));
+      await prisma.sportCompetition.update({
+        where: { id: c.id },
+        data: { advertisingUntil: "2026-10-12" },
+      });
+      assert.equal((await fetch(base + `/events/${eventId}`)).status, 404);
+      assert.equal(
+        (await fetch(base + `/sports/competitions/${c.id}`)).status,
+        404,
+      );
+      const expired = (await (
+        await fetch(base + "/events/featured")
+      ).json()) as { events: { id: string }[] };
+      assert.ok(!expired.events.some((e) => e.id === eventId));
+      assert.equal(
+        (
+          await fetch(base + `/account/sports/${c.id}`, {
+            headers: { Authorization: `Bearer ${owner.token}` },
+          })
+        ).status,
+        200,
+      );
+      await prisma.sportCompetition.update({
+        where: { id: c.id },
+        data: {
+          advertisingUntil: "2026-11-21",
+          format: "meeting",
+          endsOn: "2026-10-12",
+        },
+      });
+      assert.equal((await fetch(base + `/events/${eventId}`)).status, 404);
+      await prisma.sportCompetition.update({
+        where: { id: c.id },
+        data: { format: "championship", endsOn: "2026-11-21" },
+      });
       await prisma.adOrder.updateMany({
         where: { eventId },
         data: { status: "awaiting_payment", amountCents: 1000 },

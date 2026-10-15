@@ -1,3 +1,5 @@
+import { parseSession } from "./sportSchedule";
+import { storeSportFile } from "./sportUploads";
 import { activePublication, scToday } from "./publicationPeriod";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -47,6 +49,7 @@ const eventSelect = {
   ticketUrl: true,
 } as const;
 const detailInclude = {
+  sessions: { orderBy: [{ date: "asc" as const }, { time: "asc" as const }] },
   event: { select: eventSelect },
   teams: {
     include: { players: { orderBy: { shirt: "asc" as const } } },
@@ -114,11 +117,20 @@ async function detail(id: string, publicView = false) {
   });
   return {
     ...c,
+    sessions: publicView
+      ? c.sessions.map((s) => ({
+          ...s,
+          officials: s.officialsConfirmed ? s.officials : [],
+        }))
+      : c.sessions,
     matches: publicView
       ? c.matches.map((match) => ({
           ...match,
           hasOccurred: match.status === "finished",
-          datePassed: match.status !== "cancelled" && match.status !== "postponed" && match.date < scToday(),
+          datePassed:
+            match.status !== "cancelled" &&
+            match.status !== "postponed" &&
+            match.date < scToday(),
           officials: match.officialsConfirmed ? match.officials : [],
           selections: match.lineupConfirmed ? match.selections : [],
           homeFormation: match.lineupConfirmed ? match.homeFormation : "",
@@ -205,12 +217,45 @@ sports.patch(
       req.body.donation,
       req.body.priceCents,
     );
-    const startsOn=req.body.startsOn===undefined?c.startsOn:string(req.body.startsOn,10,10), endsOn=req.body.endsOn===undefined?c.endsOn:string(req.body.endsOn,10,10);
-    const validDate=(s:string)=>/^\d{4}-\d{2}-\d{2}$/.test(s) && Number.isFinite(Date.parse(s)) && new Date(s).toISOString().slice(0,10)===s;
-    if(!validDate(startsOn) || !validDate(endsOn) || endsOn<startsOn)throw new SportError(400,"Confira o período desta edição.");
-    const paidLimit = c.advertisingUntil > c.endsOn ? c.advertisingUntil : c.endsOn;
-    if(endsOn>paidLimit)throw new SportError(409,"Para ampliar o período contratado, solicite uma nova contratação.");
-    if(await prisma.sportMatch.count({where:{competitionId:c.id,OR:[{date:{lt:startsOn}},{date:{gt:endsOn}}]}}))throw new SportError(400,"As partidas cadastradas devem estar dentro do período da edição.");
+    const startsOn =
+        req.body.startsOn === undefined
+          ? c.startsOn
+          : string(req.body.startsOn, 10, 10),
+      endsOn =
+        req.body.endsOn === undefined
+          ? c.endsOn
+          : string(req.body.endsOn, 10, 10);
+    const validDate = (s: string) =>
+      /^\d{4}-\d{2}-\d{2}$/.test(s) &&
+      Number.isFinite(Date.parse(s)) &&
+      new Date(s).toISOString().slice(0, 10) === s;
+    if (!validDate(startsOn) || !validDate(endsOn) || endsOn < startsOn)
+      throw new SportError(400, "Confira o período desta edição.");
+    const paidLimit =
+      c.advertisingUntil > c.endsOn ? c.advertisingUntil : c.endsOn;
+    if (endsOn > paidLimit)
+      throw new SportError(
+        409,
+        "Para ampliar o período contratado, solicite uma nova contratação.",
+      );
+    if (
+      (await prisma.sportMatch.count({
+        where: {
+          competitionId: c.id,
+          OR: [{ date: { lt: startsOn } }, { date: { gt: endsOn } }],
+        },
+      })) ||
+      (await prisma.sportSession.count({
+        where: {
+          competitionId: c.id,
+          OR: [{ date: { lt: startsOn } }, { date: { gt: endsOn } }],
+        },
+      }))
+    )
+      throw new SportError(
+        400,
+        "As partidas cadastradas devem estar dentro do período da edição.",
+      );
     const tieBreakers: unknown[] = Array.isArray(req.body.tieBreakers)
       ? req.body.tieBreakers
       : ["points", "wins", "goalDifference", "goalsFor"];
@@ -229,7 +274,8 @@ sports.patch(
       await tx.sportCompetition.update({
         where: { id: c.id },
         data: {
-          startsOn, endsOn,
+          startsOn,
+          endsOn,
           admissionType: a.admissionType,
           donation: a.donation,
           rulesUrl: link(req.body.rulesUrl),
@@ -257,7 +303,7 @@ sports.post(
   "/account/sports/:id/teams",
   isLogged,
   run(async (req, res) => {
-    const c = await football(req);
+    const c = await owner(req);
     if (
       (await prisma.sportTeam.count({ where: { competitionId: c.id } })) >= 64
     )
@@ -408,14 +454,31 @@ sports.post(
     res.status(201).json({ match });
   }),
 );
- sports.patch("/account/sports/:id/rounds/:roundId",isLogged,run(async(req,res)=> {
-   const c=await football(req), round=await prisma.sportRound.findFirst({where:{id:req.params.roundId,competitionId:c.id}});
-   if(!round)throw new SportError(404,"Rodada não encontrada.");
-   const number=integer(req.body.number,1,200),name=string(req.body.name,2,100);
-   if(await prisma.sportRound.findFirst({where:{competitionId:c.id,number,id:{not:round.id}}}))throw new SportError(409,"Esta rodada já está cadastrada.");
-   await prisma.sportRound.update({where:{id:round.id},data:{number,name}});
-   await audit(req,"round_update",round.id);res.json({ok:true});
- }));
+sports.patch(
+  "/account/sports/:id/rounds/:roundId",
+  isLogged,
+  run(async (req, res) => {
+    const c = await football(req),
+      round = await prisma.sportRound.findFirst({
+        where: { id: req.params.roundId, competitionId: c.id },
+      });
+    if (!round) throw new SportError(404, "Rodada não encontrada.");
+    const number = integer(req.body.number, 1, 200),
+      name = string(req.body.name, 2, 100);
+    if (
+      await prisma.sportRound.findFirst({
+        where: { competitionId: c.id, number, id: { not: round.id } },
+      })
+    )
+      throw new SportError(409, "Esta rodada já está cadastrada.");
+    await prisma.sportRound.update({
+      where: { id: round.id },
+      data: { number, name },
+    });
+    await audit(req, "round_update", round.id);
+    res.json({ ok: true });
+  }),
+);
 sports.patch(
   "/account/sports/:id/matches/:matchId",
   isLogged,
@@ -425,9 +488,36 @@ sports.patch(
         where: { id: req.params.matchId, competitionId: c.id },
       });
     if (!match) throw new SportError(404, "Partida não encontrada.");
-    const homeId=req.body.homeId===undefined?match.homeId:string(req.body.homeId), awayId=req.body.awayId===undefined?match.awayId:string(req.body.awayId), roundId=req.body.roundId===undefined?match.roundId:string(req.body.roundId);
-    if(homeId===awayId || (await prisma.sportTeam.count({where:{competitionId:c.id,id:{in:[homeId,awayId]}}}))!==2 || !(await prisma.sportRound.findFirst({where:{id:roundId,competitionId:c.id}}))) throw new SportError(400,"Selecione equipes diferentes e uma rodada desta competição.");
-    const entrance=req.body.admissionType===undefined?{}:admission(req.body.admissionType,req.body.donation,req.body.priceCents,true);
+    const homeId =
+        req.body.homeId === undefined ? match.homeId : string(req.body.homeId),
+      awayId =
+        req.body.awayId === undefined ? match.awayId : string(req.body.awayId),
+      roundId =
+        req.body.roundId === undefined
+          ? match.roundId
+          : string(req.body.roundId);
+    if (
+      homeId === awayId ||
+      (await prisma.sportTeam.count({
+        where: { competitionId: c.id, id: { in: [homeId, awayId] } },
+      })) !== 2 ||
+      !(await prisma.sportRound.findFirst({
+        where: { id: roundId, competitionId: c.id },
+      }))
+    )
+      throw new SportError(
+        400,
+        "Selecione equipes diferentes e uma rodada desta competição.",
+      );
+    const entrance =
+      req.body.admissionType === undefined
+        ? {}
+        : admission(
+            req.body.admissionType,
+            req.body.donation,
+            req.body.priceCents,
+            true,
+          );
     const scheduled = dateTime({
       date: match.date,
       time: match.time,
@@ -495,8 +585,13 @@ sports.patch(
       await tx.sportMatch.update({
         where: { id: match.id },
         data: {
-          homeId,awayId,roundId,...entrance,
-          ...(req.body.countsForStandings===undefined?{}:{countsForStandings:req.body.countsForStandings===true}),
+          homeId,
+          awayId,
+          roundId,
+          ...entrance,
+          ...(req.body.countsForStandings === undefined
+            ? {}
+            : { countsForStandings: req.body.countsForStandings === true }),
           status,
           ...((req.body.address !== undefined &&
             req.body.address !== match.address) ||
@@ -551,7 +646,7 @@ sports.post(
   "/account/sports/:id/crest",
   isLogged,
   run(async (req, res) => {
-    await football(req);
+    await owner(req);
     const file = req.files?.crest;
     if (
       !file ||
@@ -602,7 +697,7 @@ sports.patch(
   "/account/sports/:id/teams/:teamId",
   isLogged,
   run(async (req, res) => {
-    const c = await football(req),
+    const c = await owner(req),
       team = await prisma.sportTeam.findFirst({
         where: { id: req.params.teamId, competitionId: c.id },
       });
@@ -663,6 +758,74 @@ sports.patch(
       },
     });
     await audit(req, "player_update", player.id);
+    res.json({ ok: true });
+  }),
+);
+
+sports.post(
+  "/account/sports/:id/rules",
+  isLogged,
+  run(async (req, res) => {
+    const c = await owner(req);
+    const file = req.files?.rulesFile;
+    if (!file) throw new SportError(400, "Selecione um PDF de até 5 MB.");
+    const asset = await storeSportFile(req, file, "rules");
+    try {
+      await prisma.$transaction([
+        prisma.sportCompetition.update({
+          where: { id: c.id },
+          data: { rulesUrl: asset.url },
+        }),
+        prisma.events.update({
+          where: { id: c.eventId },
+          data: { moderationStatus: "pending", featuredPriority: null },
+        }),
+      ]);
+      await audit(req, "rules_upload", c.id);
+      res.json({ url: asset.url });
+    } catch (e) {
+      await asset.remove();
+      throw e;
+    }
+  }),
+);
+sports.post(
+  "/account/sports/:id/sessions",
+  isLogged,
+  run(async (req, res) => {
+    const c = await owner(req);
+    if (c.sport === "football" && c.format === "championship")
+      throw new SportError(400, "Use a programação de partidas do futebol.");
+    if (
+      (await prisma.sportSession.count({ where: { competitionId: c.id } })) >=
+      500
+    )
+      throw new SportError(400, "Limite de atividades atingido.");
+    const row = parseSession(req.body, c.sport, c.startsOn, c.endsOn);
+    const session = await prisma.sportSession.create({
+      data: { ...row, competitionId: c.id },
+    });
+    await audit(req, "session_create", session.id);
+    res.status(201).json({ session });
+  }),
+);
+sports.patch(
+  "/account/sports/:id/sessions/:sessionId",
+  isLogged,
+  run(async (req, res) => {
+    const c = await owner(req),
+      session = await prisma.sportSession.findFirst({
+        where: { id: req.params.sessionId, competitionId: c.id },
+      });
+    if (!session) throw new SportError(404, "Atividade não encontrada.");
+    const row = parseSession(
+      { ...session, ...req.body },
+      c.sport,
+      c.startsOn,
+      c.endsOn,
+    );
+    await prisma.sportSession.update({ where: { id: session.id }, data: row });
+    await audit(req, "session_update", session.id);
     res.json({ ok: true });
   }),
 );

@@ -1,6 +1,11 @@
 import { scCities } from "../data/scCities";
 export const sportKinds = [
   "football",
+  "futsal",
+  "volleyball",
+  "basketball",
+  "triathlon",
+  "tennis",
   "running",
   "swimming",
   "athletics",
@@ -40,6 +45,20 @@ export function integer(value: unknown, min = 0, max = 100) {
   )
     throw new SportError(400, "Confira os campos obrigatórios.");
   return number;
+}
+export function coordinates(body: Record<string, unknown>) {
+  const read = (value: unknown, max: number) => {
+    if (value == null || value === "") return null;
+    const n = Number(value);
+    if (!Number.isFinite(n) || Math.abs(n) > max)
+      throw new SportError(400, "Coordenadas inválidas.");
+    return n;
+  };
+  const latitude = read(body.latitude, 90),
+    longitude = read(body.longitude, 180);
+  if ((latitude === null) !== (longitude === null))
+    throw new SportError(400, "Informe as duas coordenadas.");
+  return { latitude, longitude };
 }
 export function oneOf(value: unknown, options: readonly string[]) {
   if (typeof value !== "string" || !options.includes(value))
@@ -112,9 +131,9 @@ export function sportInput(body: Record<string, unknown>) {
     admissionType: a.admissionType,
     donation: a.donation,
     rulesUrl: link(body.rulesUrl),
-    winPoints: integer(body.winPoints ?? 3,0,100),
-    drawPoints: integer(body.drawPoints ?? 1,0,100),
-    lossPoints: integer(body.lossPoints ?? 0,0,100),
+    winPoints: integer(body.winPoints ?? 3, 0, 100),
+    drawPoints: integer(body.drawPoints ?? 1, 0, 100),
+    lossPoints: integer(body.lossPoints ?? 0, 0, 100),
   };
 }
 export interface TableTeam {
