@@ -1,3 +1,4 @@
+import { assertPayablePeriod } from "./payablePeriod";
 import prisma from "../prisma";
 import {
   paymentConfig,
@@ -33,7 +34,7 @@ export async function inlinePayment(
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${orderId}))`;
     const order = await tx.adOrder.findFirst({
       where: { id: orderId, userId },
-      include: { user: true, event: true },
+      include: { user: true, event: { include: { sportCompetition: true } } },
     });
     if (!order || !order.user.status || !order.event.status)
       throw new PaymentError(404, "Pedido não encontrado.");
@@ -42,6 +43,7 @@ export async function inlinePayment(
       ["paid", "free", "refunded"].includes(order.status)
     )
       throw new PaymentError(409, "Este pedido não precisa de pagamento.");
+    assertPayablePeriod(order);
     if (order.checkoutId)
       throw new PaymentError(
         409,

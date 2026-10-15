@@ -1,3 +1,4 @@
+import { assertPayablePeriod } from "./payablePeriod";
 import { deliverReceipts } from "./receipts";
 
 import { inlinePayment } from "./inlinePayments";
@@ -72,7 +73,7 @@ const activeUser = async (req: Request) => {
 
 export async function reconcileProviderOrder(remote: ProviderOrder) {
   if (typeof remote.reference_id !== "string")
-    throw new PaymentError(400, "NotificaÃ§Ã£o invÃ¡lida.");
+    throw new PaymentError(400, "Notificação inválida.");
 
   const order = await prisma.adOrder.findUnique({
     where: { id: remote.reference_id },
@@ -84,10 +85,10 @@ export async function reconcileProviderOrder(remote: ProviderOrder) {
     !order.checkoutId &&
     (!order.providerOrderId || order.providerOrderId !== remote.id)
   )
-    throw new PaymentError(503, "Aguarde a confirmaÃ§Ã£o do pagamento.");
+    throw new PaymentError(503, "Aguarde a confirmação do pagamento.");
 
   if (order.paymentEnvironment !== paymentConfig().environment)
-    throw new PaymentError(409, "O pagamento nÃ£o corresponde ao pedido.");
+    throw new PaymentError(409, "O pagamento não corresponde ao pedido.");
 
   const paid = verifiedCharge(remote, order.id, order.amountCents);
 
@@ -102,7 +103,7 @@ export async function reconcileProviderOrder(remote: ProviderOrder) {
       if (current.status === "refunded") return;
 
       if (current.providerPaymentId && current.providerPaymentId !== paid.id)
-        throw new PaymentError(409, "O pagamento nÃ£o corresponde ao pedido.");
+        throw new PaymentError(409, "O pagamento não corresponde ao pedido.");
 
       await tx.adOrder.update({
         where: { id: order.id },
@@ -119,6 +120,23 @@ export async function reconcileProviderOrder(remote: ProviderOrder) {
           paymentMethod: paid.payment_method.type,
         },
       });
+
+      // Only the first confirmed payment releases the ad. Replayed notifications
+      // must never override later rejection, deletion or a fresh moderation review.
+      if (current.status !== "paid") {
+        await tx.events.updateMany({
+          where: {
+            id: order.eventId,
+            status: true,
+            moderationStatus: { not: "rejected" },
+            userOwner: { status: true },
+          },
+          data: {
+            moderationStatus: "approved",
+            featuredPriority: current.placement === "carousel" ? 1 : null,
+          },
+        });
+      }
 
       const customer = await tx.users.findUniqueOrThrow({
         where: { id: current.userId },
@@ -188,7 +206,7 @@ async function syncCheckout(id: string, checkoutId: string) {
   );
 
   if (remote.id !== checkoutId || remote.reference_id !== id)
-    throw new PaymentError(409, "O pagamento nÃ£o corresponde ao pedido.");
+    throw new PaymentError(409, "O pagamento não corresponde ao pedido.");
 
   for (const item of remote.orders ?? []) {
     if (!/^ORDE_[A-Z0-9-]+$/i.test(item.id)) continue;
@@ -233,23 +251,23 @@ payments.post(
       const order = await tx.adOrder.findFirst({
         where: { id: req.params.id, userId: req.user_id },
 
-        include: { event: true },
+        include: { event: { include: { sportCompetition: true } } },
       });
 
       if (!order || !order.event.status)
-        throw new PaymentError(404, "Pedido nÃ£o encontrado.");
+        throw new PaymentError(404, "Pedido não encontrado.");
 
       if (
         order.amountCents <= 0 ||
         ["paid", "free", "refunded"].includes(order.status)
       )
-        throw new PaymentError(409, "Este pedido nÃ£o precisa de pagamento.");
+        throw new PaymentError(409, "Este pedido não precisa de pagamento.");
 
       if (
         order.paymentEnvironment &&
         order.paymentEnvironment !== config.environment
       )
-        throw new PaymentError(409, "O pagamento nÃ£o corresponde ao pedido.");
+        throw new PaymentError(409, "O pagamento não corresponde ao pedido.");
 
       if (
         order.checkoutExpiresAt &&
@@ -293,17 +311,18 @@ payments.post(
         const order = await tx.adOrder.findFirst({
           where: { id: req.params.id, userId: req.user_id },
 
-          include: { event: true },
+          include: { event: { include: { sportCompetition: true } } },
         });
 
         if (!order || !order.event.status)
-          throw new PaymentError(404, "Pedido nÃ£o encontrado.");
+          throw new PaymentError(404, "Pedido não encontrado.");
+        assertPayablePeriod(order);
 
         if (
           order.amountCents <= 0 ||
           ["paid", "free", "refunded"].includes(order.status)
         )
-          throw new PaymentError(409, "Este pedido nÃ£o precisa de pagamento.");
+          throw new PaymentError(409, "Este pedido não precisa de pagamento.");
 
         if (order.event.moderationStatus === "rejected")
           throw new PaymentError(
@@ -317,7 +336,7 @@ payments.post(
             throw new PaymentError(
               409,
 
-              "O pagamento nÃ£o corresponde ao pedido.",
+              "O pagamento não corresponde ao pedido.",
             );
 
           if (
@@ -377,7 +396,7 @@ payments.post(
           throw new PaymentError(
             502,
 
-            "O PagBank retornou uma resposta invÃ¡lida.",
+            "O PagBank retornou uma resposta inválida.",
           );
 
         const url = paymentLink(checkout);
@@ -424,7 +443,7 @@ payments.post(
       },
     });
 
-    if (!order) throw new PaymentError(404, "Pedido nÃ£o encontrado.");
+    if (!order) throw new PaymentError(404, "Pedido não encontrado.");
 
     if (order.checkoutId) {
       await syncCheckout(order.id, order.checkoutId);
@@ -532,18 +551,18 @@ export const paymentWebhook = run(async (req, res) => {
       paymentConfig().token,
     )
   )
-    throw new PaymentError(401, "NotificaÃ§Ã£o invÃ¡lida.");
+    throw new PaymentError(401, "Notificação inválida.");
 
   let body: { id?: unknown; reference_id?: unknown };
 
   try {
     body = JSON.parse(req.body.toString("utf8"));
   } catch {
-    throw new PaymentError(400, "NotificaÃ§Ã£o invÃ¡lida.");
+    throw new PaymentError(400, "Notificação inválida.");
   }
 
   if (typeof body.id !== "string")
-    throw new PaymentError(400, "NotificaÃ§Ã£o invÃ¡lida.");
+    throw new PaymentError(400, "Notificação inválida.");
 
   if (/^ORDE_[A-Z0-9-]+$/i.test(body.id))
     await reconcileProviderOrder(
@@ -555,7 +574,7 @@ export const paymentWebhook = run(async (req, res) => {
     });
 
     if (local) await syncCheckout(local.id, body.id);
-  } else throw new PaymentError(400, "NotificaÃ§Ã£o invÃ¡lida.");
+  } else throw new PaymentError(400, "Notificação inválida.");
 
   res.status(204).end();
 });

@@ -1,3 +1,4 @@
+import { publicEventWhere } from "./publicVisibility";
 import { parseSession } from "./sportSchedule";
 import { storeSportFile } from "./sportUploads";
 import { activePublication, scToday } from "./publicationPeriod";
@@ -148,6 +149,7 @@ sports.get(
         event: {
           status: true,
           moderationStatus: "approved",
+          ...publicEventWhere(),
           AND: [activePublication()],
           state: "SC",
           userOwner: { status: true },
@@ -173,6 +175,7 @@ sports.get(
         event: {
           status: true,
           moderationStatus: "approved",
+          ...publicEventWhere(),
           AND: [activePublication()],
           userOwner: { status: true },
           orders: { some: { status: { in: ["paid", "free"] } } },

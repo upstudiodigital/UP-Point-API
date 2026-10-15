@@ -20,6 +20,9 @@ export async function deliverReceipts() {
     });
     const transport = nodemailer.createTransport({
       host: process.env.SMTP_HOST,
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 60000,
       port: Number(process.env.SMTP_PORT ?? 587),
       secure: process.env.SMTP_PORT === "465",
       auth: process.env.SMTP_USER
@@ -63,7 +66,12 @@ export async function deliverReceipts() {
           `Cliente: ${order.user.name}`,
           `Evento: ${order.event.name}`,
           `Valor: ${money}`,
-          ...(order.monthlyRateCents ? [`Divulgacao: ${order.advertisingFrom} ate ${order.advertisingUntil}`,`Meses: ${order.billedMonths} x R$ 50`] : []),
+          ...(order.monthlyRateCents
+            ? [
+                `Divulgacao: ${order.advertisingFrom} ate ${order.advertisingUntil}`,
+                `Meses: ${order.billedMonths} x R$ 50`,
+              ]
+            : []),
           `Metodo: ${order.paymentMethod}`,
           `Pagamento: ${order.paidAt.toISOString()}`,
           `Pedido: ${order.id}`,
@@ -90,7 +98,7 @@ export async function deliverReceipts() {
           to: recipient,
           messageId: `<uppoint-${message.id}@upstudiodigital.com.br>`,
           subject: `UP Point - pagamento confirmado${order.paymentEnvironment === "sandbox" ? " [TESTE]" : ""}`,
-          html: `<h1>Pagamento confirmado</h1><p>${escape(order.event.name)} — ${money}</p><p>Seu comprovante está em anexo. A publicação passa pela análise da equipe.</p>`,
+          html: `<h1>Pagamento confirmado</h1><p>${escape(order.event.name)} — ${money}</p><p>Seu comprovante está em anexo. Consulte a divulgação e o período contratado no seu painel.</p>`,
           attachments: [
             {
               filename: `comprovante-${order.id}.pdf`,

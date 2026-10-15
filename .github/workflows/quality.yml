@@ -1,0 +1,20 @@
+name: api-quality
+on: [push, pull_request]
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+        env:
+          DATABASE_URL: postgresql://qa:qa@127.0.0.1:5434/uppoint_dev
+      - run: npm run build
+      - run: npm test
+      - run: npm audit --omit=dev --audit-level=high
+# Integration tests deliberately need the guarded local DB and a running API.
+# Run the full acceptance suite before release; CI unit success alone is not acceptance.

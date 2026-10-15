@@ -10,6 +10,8 @@ datasource db {
 }
 
 model Users {
+  sessionVersion Int @default(0)
+  passwordResets PasswordReset[]
   id              String  @id @default(uuid())
   idPlan          String?
   idProduct       String? @unique
@@ -561,4 +563,27 @@ model SportSession {
  status String @default("scheduled")
  competition SportCompetition @relation(fields:[competitionId],references:[id],onDelete:Cascade)
  @@index([competitionId,date,time])
+}
+
+model PasswordReset {
+ id String @id @default(uuid())
+ userId String
+ user Users @relation(fields:[userId],references:[id],onDelete:Cascade)
+ tokenHash String @unique
+ createdAt DateTime @default(now())
+ expiresAt DateTime
+ usedAt DateTime?
+ @@index([userId,createdAt])
+ @@index([expiresAt])
+}
+model SupportRequest {
+ id String @id @default(uuid())
+ email String
+ category String
+ description String
+ eventId String?
+ status String @default("open")
+ createdAt DateTime @default(now())
+ updatedAt DateTime @updatedAt
+ @@index([status,createdAt])
 }

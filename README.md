@@ -113,3 +113,7 @@ Testes PagBank: assinatura adulterada, valores/moeda divergentes, captura vs aut
 - `/locations/search?address=...`: Photon, acionado pelo botão, com cache de 24h e limite global de uma consulta por 1,1s por processo. `PHOTON_API_URL` permite trocar para instância própria. Protótipo local usa o servidor demo, sem garantia de disponibilidade e sujeito a limites: https://github.com/komoot/photon#demo-server . Antes de escalar produção, usar serviço dedicado e rate limit compartilhado entre réplicas.
 - `/weather/forecast?latitude=...&longitude=...&date=...`: Open-Meteo, cache de 15min e limite global de 1 chamada/s por processo; apenas hoje e próximos 15 dias. Fora disso retorna `available:false`. Produção exige `OPEN_METEO_API_KEY` para endpoint comercial: https://open-meteo.com/en/pricing . O plano não foi contratado automaticamente.
 - Consultas externas enviam somente endereço público do evento/coordenadas, nunca CPF ou perfil. Atribuições visíveis ao OpenStreetMap e Open-Meteo.
+
+## Atualização 15/10/2026
+
+As regras históricas acima devem ser lidas com as atualizações: publicação paga automática após confirmação server-side, previsão do tempo retirada, recuperação de senha no portal, canal /atendimento e regras públicas unificadas. Guia de implantação em docs/implantacao-e-liberacao.md. Não ativar rotas legadas para recuperar acesso. Sem domínio/hospedagem definidos ou deploy nesta entrega.

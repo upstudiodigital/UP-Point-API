@@ -247,12 +247,27 @@ test(
         where: { id: orderId },
       });
       assert.equal(paid.status, "paid");
+      assert.equal(
+        (await prisma.events.findUniqueOrThrow({ where: { id: eventId } }))
+          .moderationStatus,
+        "approved",
+      );
       assert.equal(paid.paymentMethod, "DEBIT_CARD");
       assert.equal(paid.providerPaymentId, chargeId);
       assert.equal(paid.paidAt?.toISOString(), paidAt);
       assert.equal(
         (await post(`/payments/orders/${orderId}/checkout`)).status,
         409,
+      );
+      await prisma.events.update({
+        where: { id: eventId },
+        data: { moderationStatus: "rejected", featuredPriority: null },
+      });
+      await post(`/payments/orders/${orderId}/sync`);
+      assert.equal(
+        (await prisma.events.findUniqueOrThrow({ where: { id: eventId } }))
+          .moderationStatus,
+        "rejected",
       );
       state = "CANCELED";
       await post(`/payments/orders/${orderId}/sync`);
@@ -266,7 +281,7 @@ test(
       await new Promise<void>((resolve, reject) =>
         server.close((error) => (error ? reject(error) : resolve())),
       );
-      await prisma.paymentEmail.deleteMany({where:{orderId}});
+      await prisma.paymentEmail.deleteMany({ where: { orderId } });
       await prisma.adOrder.deleteMany({ where: { id: orderId } });
       await prisma.events.deleteMany({ where: { id: eventId } });
       await prisma.categories.deleteMany({ where: { id: categoryId } });

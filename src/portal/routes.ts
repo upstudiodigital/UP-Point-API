@@ -1,3 +1,4 @@
+import { publicEventWhere } from "./publicVisibility";
 import {
   normaliseScheduleBody,
   decodeProgramme,
@@ -109,6 +110,7 @@ function passwordValue(value: unknown, min: number) {
   return value;
 }
 function session(user: {
+  sessionVersion: number;
   id: string;
   name: string;
   email: string | null;
@@ -123,7 +125,7 @@ function session(user: {
       typeAccess: user.typeAccess,
       profileAvatar: user.profileAvatar,
     },
-    token: sign({}, secret(), {
+    token: sign({ sv: user.sessionVersion }, secret(), {
       subject: user.id,
       expiresIn: "8h",
       algorithm: "HS256",
@@ -155,7 +157,7 @@ portal.post(
         })
       )
         throw new HttpError(409, "Este email já possui uma conta.");
-      return tx.users.create({
+      const registered = await tx.users.create({
         data: {
           name,
           email,
@@ -168,10 +170,23 @@ portal.post(
           id: true,
           name: true,
           email: true,
+          sessionVersion: true,
           typeAccess: true,
           profileAvatar: true,
         },
       });
+      await tx.adminAudit.create({
+        data: {
+          actorId: registered.id,
+          targetId: registered.id,
+          action: "terms_accept",
+          detail: JSON.stringify({
+            version: "2026-10-15-v2",
+            scope: "terms_and_privacy",
+          }),
+        },
+      });
+      return registered;
     });
     res.status(201).json(session(user));
   }),
@@ -234,19 +249,24 @@ portal.get(
     const state = typeof req.query.state === "string" ? req.query.state : "SC";
     if (!states.includes(state)) throw new HttpError(400, "Estado inválido.");
     const q = typeof req.query.q === "string" ? req.query.q.slice(0, 120) : "";
+    const page = Number(req.query.page ?? 1);
+    if(!Number.isSafeInteger(page)||page<1||page>100000)throw new HttpError(400,"Página inválida.");
+    const pageSize=200;
     const events = await prisma.events.findMany({
       where: {
         status: true,
         moderationStatus: "approved",
+        ...publicEventWhere(),
         state,
         country: "BR",
         ...(q ? { name: { contains: q, mode: "insensitive" } } : {}),
       },
       include: publicInclude,
-      orderBy: [{ dateEvent: "asc" }, { hourEvent: "asc" }],
-      take: 500,
+      orderBy: [{ dateEvent: "asc" }, { hourEvent: "asc" }, {id:"asc"}],
+      skip:(page-1)*pageSize,
+      take:pageSize,
     });
-    res.json({ events });
+    res.json({ events, page, hasMore:events.length===pageSize });
   }),
 );
 portal.get(
@@ -257,6 +277,7 @@ portal.get(
       where: {
         status: true,
         moderationStatus: "approved",
+        ...publicEventWhere(),
         state: "SC",
         country: "BR",
         featuredPriority: { not: null },
@@ -286,6 +307,7 @@ portal.get(
         id: req.params.id,
         status: true,
         moderationStatus: "approved",
+        ...publicEventWhere(),
         AND: [activePublication()],
       },
       include: publicInclude,
@@ -573,6 +595,16 @@ portal.post(
             },
             include: publicInclude,
           });
+          await tx.adminAudit.create({
+            data: {
+              actorId: req.user_id,
+              targetId: event.id,
+              action: "publication_responsibility",
+              detail: JSON.stringify({
+                version: "2026-10-15-responsibility-v1",
+              }),
+            },
+          });
           if (sport) {
             const c = await tx.sportCompetition.create({
               data: { ...sport, ...period, eventId: event.id },
@@ -721,6 +753,14 @@ portal.put(
                 : integer(req.body.lossPoints, 0, 100),
           },
         });
+      await tx.adminAudit.create({
+        data: {
+          actorId: req.user_id,
+          targetId: owned.id,
+          action: "publication_responsibility",
+          detail: JSON.stringify({ version: "2026-10-15-responsibility-v1" }),
+        },
+      });
       return tx.events.update({
         where: { id: owned.id },
         data: {
